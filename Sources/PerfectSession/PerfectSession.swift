@@ -40,6 +40,18 @@ public struct PerfectSession {
 		updated = getNow()
 	}
 
+	public func tojson() -> String {
+		do {
+			return try data.jsonEncodedString()
+		} catch {
+			return "{}"
+		}
+	}
+
+	public mutating func fromjson(_ str : String) {
+		data = try! str.jsonDecode() as! [String : Any]
+	}
+
 	/// updates the "updated" property
 	public mutating func touch() {
 		updated = getNow()
