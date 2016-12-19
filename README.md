@@ -61,9 +61,10 @@ To use the Perfect Session driver with a database storage option (recommended) u
 
 * [PostgreSQL](https://github.com/PerfectlySoft/Perfect-Session-PostgreSQL)
 * [MySQL](https://github.com/PerfectlySoft/Perfect-Session-MySQL)
-* CouchDB (coming)
-* MongoDB (coming)
-* Redis (coming)
+* CouchDB (coming soon)
+* MongoDB (coming soon)
+* Redis (coming soon)
+* SQLite (coming soon)
 
 If you use one of the database-specific modules, you do not need to include this module as a dependancy, as it is already included.
 
