@@ -59,7 +59,7 @@ Add this project as a dependency in your Package.swift file.
 
 To use the Perfect Session driver with a database storage option (recommended) use one of the following database-specific modules:
 
-* PostgreSQL (coming)
+* [PostgreSQL](https://github.com/PerfectlySoft/Perfect-Session-PostgreSQL)
 * MySQL (coming)
 * CouchDB (coming)
 * MongoDB (coming)
