@@ -44,12 +44,17 @@ public struct PerfectSession {
 		do {
 			return try data.jsonEncodedString()
 		} catch {
+			print(error)
 			return "{}"
 		}
 	}
 
 	public mutating func fromjson(_ str : String) {
-		data = try! str.jsonDecode() as! [String : Any]
+		do {
+			data = try str.jsonDecode() as! [String : Any]
+		} catch {
+			print(error)
+		}
 	}
 
 	/// updates the "updated" property
