@@ -7,7 +7,6 @@
 //
 
 import PerfectHTTP
-import PerfectSession
 
 public struct SessionMemoryDriver {
 	public var requestFilter: (HTTPRequestFilter, HTTPFilterPriority)
