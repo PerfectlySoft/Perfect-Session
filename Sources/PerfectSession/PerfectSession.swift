@@ -17,23 +17,45 @@
 //===----------------------------------------------------------------------===//
 //
 
-
+import Foundation
 
 /// Holds the session information in memory for duration of request
 public struct PerfectSession {
 	/// Token (session id)
-	var token			= ""
+	public var token			= ""
 	/// Associated UserID. Optional to populate
-	var userid			= ""
+	public var userid			= ""
 	/// Date created, as an Int
-	var created			= 0
+	public var created			= 0
 	/// Date updated, as an Int
-	var updated			= 0
+	public var updated			= 0
 	/// Idle time set at last update
-	var idle			= SessionConfig.idle
+	public var idle			= SessionConfig.idle
 	/// Data held in storage associated with session
-	var data			= [String: Any]()
+	public var data			= [String: Any]()
 
+	/// When creating a new session, the "created" and "updated" properties are set
+	public init(){
+		created = getNow()
+		updated = getNow()
+	}
+
+	/// updates the "updated" property
+	public mutating func touch() {
+		updated = getNow()
+	}
+
+	/// Compares the timestamps and idle to determine if session has expired
+	public func isValid() -> Bool {
+		if (updated + idle) > getNow() {
+			return true
+		}
+		return false
+	}
+
+	private func getNow() -> Int {
+		return Int(Date().timeIntervalSince1970)
+	}
 }
 
 

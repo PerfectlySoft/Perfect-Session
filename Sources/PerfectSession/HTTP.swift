@@ -7,9 +7,10 @@
 //
 
 import PerfectHTTP
+import Foundation
 
 public extension HTTPRequest {
-	internal(set) public var session: PerfectSession {
+	public(set) public var session: PerfectSession {
 		get {
 			return scratchPad["PerfectSession"] as! PerfectSession
 		}
@@ -30,7 +31,7 @@ struct SessionHeader {
 	}
 
 	var sessionid: String? {
-		let parts = headerValue.components(separatedBy: ":")
+	let parts = headerValue.components(separatedBy: ":")
 		if parts.count < 4 { return nil }
 		return parts[3]
 	}
@@ -41,7 +42,7 @@ extension HTTPRequest {
 		return SessionHeader(value: self.header(.custom(name: "Session-Id")))
 	}
 
-	func getCookie(name: String) -> String? {
+	public func getCookie(name: String) -> String? {
 		for (cookieName, payload) in self.cookies {
 			if name == cookieName {
 				return payload
