@@ -15,6 +15,15 @@ public struct SessionConfig {
 	/// Session Storage Type
 	public static var storage: SessionStorage = .memory
 
+
+
+	/// CouchDB-Specific option
+	public static var couchDatabase = "sessions"
+	/// MongoDB-Specific option
+	public static var mongoCollection = "sessions"
+	
+	
+	
 	/// Simple switch between memory session and database storage engines
 	public enum SessionStorage {
 		case memory, database
