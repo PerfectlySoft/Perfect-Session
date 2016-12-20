@@ -61,7 +61,7 @@ To use the Perfect Session driver with a database storage option (recommended) u
 
 * [PostgreSQL](https://github.com/PerfectlySoft/Perfect-Session-PostgreSQL)
 * [MySQL](https://github.com/PerfectlySoft/Perfect-Session-MySQL)
-* CouchDB (coming soon)
+* [CouchDB](https://github.com/PerfectlySoft/Perfect-Session-CouchDB)
 * MongoDB (coming soon)
 * Redis (coming soon)
 * SQLite (coming soon)
