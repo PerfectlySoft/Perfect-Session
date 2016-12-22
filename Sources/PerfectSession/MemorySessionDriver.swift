@@ -6,6 +6,12 @@
 //
 //
 
+/*	Change History
+	====
+	0.0.6
+		Added to response add cookie: cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
+*/
+
 import PerfectHTTP
 
 public struct SessionMemoryDriver {
@@ -30,9 +36,8 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		var createSession = true
 		if let token = request.getCookie(name: SessionConfig.name) {
 			if let session = MemorySessions.sessions[token] {
-				if session.isValid() {
+				if session.isValid(request) {
 					request.session = session
-					// print("Session: token \(session.token); created \(session.created); updated \(session.updated)")
 					createSession = false
 				} else {
 					MemorySessions.destroy(token: token)
@@ -41,12 +46,9 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		}
 		if createSession {
 			//start new session
-			request.session = MemorySessions.start()
-			// print("Session (new): token \(request.session.token); created \(request.session.created); updated \(request.session.updated)")
-
+			request.session = MemorySessions.start(request)
 		}
 
-		// print("Performing PerfectSessionMemoryFilter: HTTPRequestFilter (\(request.method))")
 
 		callback(HTTPRequestFilterResult.continue(request, response))
 	}
@@ -58,17 +60,26 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 	public func filterHeaders(response: HTTPResponse, callback: (HTTPResponseFilterResult) -> ()) {
 		MemorySessions.save(session: response.request.session)
 		let sessionID = response.request.session.token
+
+		// 0.0.6 updates
+		var domain = ""
+		if !SessionConfig.cookieDomain.isEmpty {
+			domain = SessionConfig.cookieDomain
+		}
+
 		if !sessionID.isEmpty {
-			response.addCookie(HTTPCookie(name: SessionConfig.name,
+			response.addCookie(HTTPCookie(
+				name: SessionConfig.name,
 				value: "\(sessionID)",
-				domain: nil,
+				domain: domain,
 				expires: .relativeSeconds(SessionConfig.idle),
-				path: "/",
-				secure: nil,
-				httpOnly: true)
+				path: SessionConfig.cookiePath,
+				secure: SessionConfig.cookieSecure,
+				httpOnly: SessionConfig.cookieHTTPOnly,
+				sameSite: SessionConfig.cookieSameSite
+				)
 			)
 		}
-		// print("Performing PerfectSessionMemoryFilter: HTTPResponseFilter")
 
 		callback(.continue)
 	}

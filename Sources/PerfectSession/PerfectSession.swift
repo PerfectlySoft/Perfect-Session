@@ -17,7 +17,15 @@
 //===----------------------------------------------------------------------===//
 //
 
+/*	Change History
+	====
+	0.0.6
+		Added IP Address, USer Agent storage
+		Added isValid checks for IP And UA
+*/
+
 import Foundation
+import PerfectHTTP
 
 /// Holds the session information in memory for duration of request
 public struct PerfectSession {
@@ -30,9 +38,16 @@ public struct PerfectSession {
 	/// Date updated, as an Int
 	public var updated			= 0
 	/// Idle time set at last update
-	public var idle			= SessionConfig.idle
+	public var idle				= SessionConfig.idle
 	/// Data held in storage associated with session
-	public var data			= [String: Any]()
+	public var data				= [String: Any]()
+
+
+	/// IP Address of Session
+	public var ipaddress		= ""
+
+	/// UserAgent of Session
+	public var useragent		= ""
 
 	/// When creating a new session, the "created" and "updated" properties are set
 	public init(){
@@ -40,6 +55,7 @@ public struct PerfectSession {
 		updated = getNow()
 	}
 
+	/// Makes a JSON Encoded string
 	public func tojson() -> String {
 		do {
 			return try data.jsonEncodedString()
@@ -49,6 +65,7 @@ public struct PerfectSession {
 		}
 	}
 
+	/// Sets the data property to a [String:Any] from JSON
 	public mutating func fromjson(_ str : String) {
 		do {
 			data = try str.jsonDecode() as! [String : Any]
@@ -63,8 +80,14 @@ public struct PerfectSession {
 	}
 
 	/// Compares the timestamps and idle to determine if session has expired
-	public func isValid() -> Bool {
+	public func isValid(_ request:HTTPRequest) -> Bool {
 		if (updated + idle) > getNow() {
+			if SessionConfig.IPAddressLock && request.remoteAddress.host != ipaddress {
+				return false
+			}
+			if SessionConfig.userAgentLock && request.header(.userAgent) != useragent {
+				return false
+			}
 			return true
 		}
 		return false
