@@ -49,6 +49,8 @@ public struct PerfectSession {
 	/// UserAgent of Session
 	public var useragent		= ""
 
+	public var _state			= "recover"
+
 	/// When creating a new session, the "created" and "updated" properties are set
 	public init(){
 		created = getNow()

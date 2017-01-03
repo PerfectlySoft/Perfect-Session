@@ -35,6 +35,7 @@ public struct MemorySessions {
 		session.token = rand.secureToken
 		session.ipaddress = request.remoteAddress.host
 		session.useragent = request.header(.userAgent) ?? "unknown"
+		session._state = "new"
 		MemorySessions.sessions[session.token] = session
 		return session
 	}
