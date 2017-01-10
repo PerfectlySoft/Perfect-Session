@@ -55,10 +55,34 @@ public struct SessionConfig {
 	/// MongoDB-Specific option
 	public static var mongoCollection = "sessions"
 	
-	
+
+	// CSRF CONFIG:
+	public static var CSRFfailAction: CSRFaction = .fail
+
+	/// Global "YES CHECK CSRF" flag
+	public static var CSRFCheckState = true
+
+	/// Check referral header
+	/// Default: true
+	/// Note some of the header checks are not reliable with HTTPS
+	public static var CSRFcheckHeaders = true
+
+	public static var CSRFacceptableHostnames = [String]()
+
+	/// Require Cookie-to-Header Token
+	public static var CSRFrequireToken = true
+
+
+
 	
 	/// Simple switch between memory session and database storage engines
 	public enum SessionStorage {
 		case memory, database
 	}
+
+	/// CSRF Action to be taken on failure
+	public enum CSRFaction {
+		case fail, log, none
+	}
+
 }

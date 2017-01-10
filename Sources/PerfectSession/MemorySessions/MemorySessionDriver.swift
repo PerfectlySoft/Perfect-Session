@@ -10,9 +10,12 @@
 	====
 	0.0.6
 		Added to response add cookie: cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
+	0.0.7
+		Added CSRF support
 */
 
 import PerfectHTTP
+import PerfectLogger
 
 public struct SessionMemoryDriver {
 	public var requestFilter: (HTTPRequestFilter, HTTPFilterPriority)
@@ -49,7 +52,24 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 			request.session = MemorySessions.start(request)
 		}
 
+		// Now process CSRF
+		if request.session._state != "new" {
+			if !CSRFFilter.filter(request) {
+				switch SessionConfig.CSRFfailAction {
+				case .fail:
+					callback(.halt(request, response))
+					return
+				case .log:
+					LogFile.info("CSRF FAIL")
 
+				default:
+					print("CSRF FAIL (console notification only)")
+				}
+			}
+		}
+
+
+		// End...
 		callback(HTTPRequestFilterResult.continue(request, response))
 	}
 }
@@ -79,6 +99,11 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 				sameSite: SessionConfig.cookieSameSite
 				)
 			)
+
+			// CSRF Set Cookie
+			if SessionConfig.CSRFCheckState {
+				CSRFFilter.setCookie(response)
+			}
 		}
 
 		callback(.continue)
