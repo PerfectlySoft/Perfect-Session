@@ -36,6 +36,7 @@ public struct MemorySessions {
 		session.ipaddress = request.remoteAddress.host
 		session.useragent = request.header(.userAgent) ?? "unknown"
 		session._state = "new"
+		session.setCSRF()
 		MemorySessions.sessions[session.token] = session
 		return session
 	}
@@ -46,11 +47,15 @@ public struct MemorySessions {
 	}
 
 	public static func resume(token: String) throws -> PerfectSession {
+		var returnSession = PerfectSession()
 		if let session = MemorySessions.sessions[token] {
-			return session
+			returnSession = session
 		} else {
 			throw InvalidSessionError()
 		}
+		returnSession._state = "resume"
+		print("RESUMING?")
+		return returnSession
 	}
 
 }

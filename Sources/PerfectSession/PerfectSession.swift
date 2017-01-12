@@ -26,6 +26,7 @@
 
 import Foundation
 import PerfectHTTP
+import TurnstileCrypto
 
 /// Holds the session information in memory for duration of request
 public struct PerfectSession {
@@ -97,6 +98,12 @@ public struct PerfectSession {
 
 	private func getNow() -> Int {
 		return Int(Date().timeIntervalSince1970)
+	}
+
+	public mutating func setCSRF(){
+		let rand = URandom()
+		let t = data["csrf"] as? String ?? ""
+		if t.isEmpty { data["csrf"] = rand.secureToken }
 	}
 }
 

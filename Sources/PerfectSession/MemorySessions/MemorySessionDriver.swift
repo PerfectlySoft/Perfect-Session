@@ -41,6 +41,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 			if let session = MemorySessions.sessions[token] {
 				if session.isValid(request) {
 					request.session = session
+					request.session._state = "resume"
 					createSession = false
 				} else {
 					MemorySessions.destroy(token: token)
@@ -53,10 +54,13 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		}
 
 		// Now process CSRF
-		if request.session._state != "new" {
+		if request.session._state != "new" || request.method == .post {
+			//print("Check CSRF Request: \(CSRFFilter.filter(request))")
 			if !CSRFFilter.filter(request) {
+
 				switch SessionConfig.CSRFfailAction {
 				case .fail:
+					response.status = .notAcceptable
 					callback(.halt(request, response))
 					return
 				case .log:
@@ -69,7 +73,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		}
 
 
-		// End...
+		// End. Continue
 		callback(HTTPRequestFilterResult.continue(request, response))
 	}
 }
@@ -102,6 +106,7 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 
 			// CSRF Set Cookie
 			if SessionConfig.CSRFCheckState {
+				//print("in SessionConfig.CSRFCheckState")
 				CSRFFilter.setCookie(response)
 			}
 		}

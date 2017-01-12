@@ -7,26 +7,18 @@
 //
 
 import PerfectHTTP
-import TurnstileCrypto
 
 public class CSRFFilter {
 	public init() {}
 
 	public static func filter(_ request: HTTPRequest) -> Bool {
-		let rand = URandom()
 
 		// Declare and use csrfToken from within Session
 		var csrfTokenSession = ""
-		if SessionConfig.CSRFrequireToken {
-			if let t = request.session.data["csrf"] { csrfTokenSession = t as! String }
-
-			// if no CSRF token then put one in the session
-			if csrfTokenSession.isEmpty {
-				request.session.data["csrf"] = rand.secureToken
-			}
-		}
+		if let t = request.session.data["csrf"] { csrfTokenSession = t as! String }
 
 		if request.session._state == "new" && request.method == .post {
+			print("CSRF WARNING: NEW SESSION AND POST")
 			return false
 		}
 
@@ -35,13 +27,15 @@ public class CSRFFilter {
 			// check headers and if post method, if there's a token (if POST method)
 			if request.method == .post && SessionConfig.CSRFcheckHeaders {
 				if !CSRFSecurity.checkHeaders(request) {
+					print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL AND POST")
 					return false
 				}
 			}
 			if SessionConfig.CSRFrequireToken {
 				var csrfTokenIncoming = ""
 				var isCSRFHeaderToken = false
-				if let t = request.param(name: "_csrf") {
+//				print("params in CSRFFilter.filter \(request.params())")
+				if let t = request.param(name: "_csrf"), !t.isEmpty {
 					csrfTokenIncoming = t
 				} else if request.header(.contentType) == "application/json" {
 					// get from header, might be a JSON request
@@ -50,6 +44,10 @@ public class CSRFFilter {
 						csrfTokenIncoming = t
 					}
 				}
+//				print("csrfTokenSession: \(csrfTokenSession)")
+//				print("csrfTokenIncoming: \(csrfTokenIncoming)")
+//				print("request.header(.xCsrfToken): \(request.header(.xCsrfToken))")
+//				print("request.header(.contentType): \(request.header(.contentType))")
 
 
 				// Double make sure of POST requests
@@ -58,20 +56,6 @@ public class CSRFFilter {
 						return false
 					}
 				}
-				// Now make sure there is a header X-Requested-By or similar
-				// http://security.stackexchange.com/questions/23371/csrf-protection-with-custom-headers-and-without-validating-token
-				/*
-				"X-Requested-By" recognized by Jersey/others
-				"X-Requested-With" set by jQuery
-				"X-XSRF-TOKEN" set by Angular (unsupported?)
-				"X-CSRF-TOKEN" recognized by the Play framework
-				*/
-				if (request.header(.xRequestedBy)?.isEmpty)! && (request.header(.xRequestedWith)?.isEmpty)! && (request.header(.xCsrfToken)?.isEmpty)! {
-					return false
-				}
-
-				// Now make sure there is a custom header with the CSRF token
-
 			}
 		}
 		return true

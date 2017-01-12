@@ -33,6 +33,7 @@ JavaScript running from a rogue file or email will not be able to read it and co
 */
 
 import PerfectHTTP
+import SwiftString
 
 public class CSRFSecurity {
 
@@ -46,7 +47,10 @@ public class CSRFSecurity {
 	static func isValid(origin: String, host: String) -> Bool {
 
 		// If both origin and referrer are empty, dropkick as recommended by OWASP
-		if origin.isEmpty { return false }
+		if origin.isEmpty {
+			print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL origin.isEmpty")
+			return false
+		}
 		if SessionConfig.CSRFacceptableHostnames.count > 0 {
 			// Check if acceptableHostnames has been prefilled. If yes, use that, else use the host
 			for check in SessionConfig.CSRFacceptableHostnames {
@@ -54,19 +58,24 @@ public class CSRFSecurity {
 				if check == origin { return true }
 			}
 		}
-		if host.isEmpty { return false }
+		if host.isEmpty {
+			print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL host.isEmpty")
+			return false
+		}
 		if host == origin { return true }
+
+		print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL host \(host) != origin \(origin)")
 		return false
 	}
 
 	// Determine Origin
 	static func getOrigin(_ request: HTTPRequest) -> String {
 		if let origin = request.header(.origin), !(origin as String).isEmpty {
-			return origin as String
+			return killhttp(origin as String)
 		} else if let referer = request.header(.referer), !(referer as String).isEmpty {
-			return referer as String
+			return killhttp(referer as String)
 		} else if let xForwardedFor = request.header(.xForwardedFor), !(xForwardedFor as String).isEmpty {
-			return xForwardedFor as String
+			return killhttp(xForwardedFor as String)
 		}
 		return ""
 	}
@@ -74,11 +83,17 @@ public class CSRFSecurity {
 	// Determine Host
 	static func getHost(_ request: HTTPRequest) -> String {
 		if let host = request.header(.host), !(host as String).isEmpty {
-			return host as String
+			return killhttp(host as String)
 		} else if let xForwardedHost = request.header(.xForwardedHost), !(xForwardedHost as String).isEmpty {
-			return xForwardedHost as String
+			return killhttp(xForwardedHost as String)
 		}
 		return ""
 	}
 
+	static func killhttp(_ str: String) -> String {
+		var strr = str
+		strr = strr.chompLeft("http://")
+		strr = strr.chompLeft("https://")
+		return strr
+	}
 }
