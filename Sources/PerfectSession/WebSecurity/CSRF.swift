@@ -51,9 +51,9 @@ public class CSRFSecurity {
 			print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL origin.isEmpty")
 			return false
 		}
-		if SessionConfig.CSRFacceptableHostnames.count > 0 {
+		if SessionConfig.CSRF.acceptableHostnames.count > 0 {
 			// Check if acceptableHostnames has been prefilled. If yes, use that, else use the host
-			for check in SessionConfig.CSRFacceptableHostnames {
+			for check in SessionConfig.CSRF.acceptableHostnames {
 				// Support for wildcards to come.
 				if check == origin { return true }
 			}

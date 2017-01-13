@@ -25,13 +25,13 @@ public class CSRFFilter {
 		// If new session, not really a proper check so return true
 		if request.session._state != "new" {
 			// check headers and if post method, if there's a token (if POST method)
-			if request.method == .post && SessionConfig.CSRFcheckHeaders {
+			if request.method == .post && SessionConfig.CSRF.checkHeaders {
 				if !CSRFSecurity.checkHeaders(request) {
 					print("CSRF WARNING: CSRFSecurity.checkHeaders FAIL AND POST")
 					return false
 				}
 			}
-			if SessionConfig.CSRFrequireToken {
+			if SessionConfig.CSRF.requireToken {
 				var csrfTokenIncoming = ""
 				var isCSRFHeaderToken = false
 //				print("params in CSRFFilter.filter \(request.params())")
