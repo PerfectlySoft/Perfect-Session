@@ -61,7 +61,7 @@ public class CSRFFilter {
 		return true
 	}
 
-	/// Called once before headers are sent to the client. If needed, sets the cookie with the session id.
+	/// Called once before headers are sent to the client. If needed, sets the cookie with the CSRF token.
 	public static func setCookie(_ response: HTTPResponse) {
 		var domain = ""
 		if !SessionConfig.cookieDomain.isEmpty {

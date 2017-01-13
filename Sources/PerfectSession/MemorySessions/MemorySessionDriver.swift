@@ -72,7 +72,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 			}
 		}
 
-
+		CORSheaders.make(request, response)
 		// End. Continue
 		callback(HTTPRequestFilterResult.continue(request, response))
 	}
@@ -109,7 +109,6 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 				CSRFFilter.setCookie(response)
 			}
 		}
-
 		callback(.continue)
 	}
 
