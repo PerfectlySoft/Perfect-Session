@@ -41,7 +41,7 @@ public class CSRFSecurity {
 
 	public static func checkHeaders(_ request: HTTPRequest) -> Bool {
 		// boiled down so it's more testable
-		return CSRFSecurity.isValid(origin: CSRFSecurity.getOrigin(request), host: CSRFSecurity.getHost(request))
+		return CSRFSecurity.isValid(origin: CSRFSecurity.getOriginNoHTTP(request), host: CSRFSecurity.getHost(request))
 	}
 
 	static func isValid(origin: String, host: String) -> Bool {
@@ -69,16 +69,21 @@ public class CSRFSecurity {
 	}
 
 	// Determine Origin
+	static func getOriginNoHTTP(_ request: HTTPRequest) -> String {
+		return killhttp(getOrigin(request))
+	}
+
 	static func getOrigin(_ request: HTTPRequest) -> String {
 		if let origin = request.header(.origin), !(origin as String).isEmpty {
-			return killhttp(origin as String)
+			return (origin as String)
 		} else if let referer = request.header(.referer), !(referer as String).isEmpty {
-			return killhttp(referer as String)
+			return (referer as String)
 		} else if let xForwardedFor = request.header(.xForwardedFor), !(xForwardedFor as String).isEmpty {
-			return killhttp(xForwardedFor as String)
+			return (xForwardedFor as String)
 		}
 		return ""
 	}
+
 
 	// Determine Host
 	static func getHost(_ request: HTTPRequest) -> String {

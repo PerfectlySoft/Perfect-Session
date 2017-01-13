@@ -18,16 +18,19 @@ public class CORSheaders {
 			let origin = CSRFSecurity.getOrigin(request)
 			if origin.isEmpty {
 				// Auto-fail if no origin.
+				print("CORS Warning: No Origin")
 				return
 			}
-			let wildcards = SessionConfig.CORS.acceptableHostnames.filter({$0.contains("*")})
+			let wildcards = SessionConfig.CORS.acceptableHostnames.filter({$0.contains("*") && $0 != "*"})
 
 			var corsOK = false
 
 			// check if specifically in inclusions
-			if SessionConfig.CORS.acceptableHostnames.contains(request.path) {
+			if SessionConfig.CORS.acceptableHostnames.contains("*") {
 				corsOK = true
-			} else {
+			} else if SessionConfig.CORS.acceptableHostnames.contains(origin.lowercased()) {
+				corsOK = true
+			} else if wildcards.count > 0 {
 				// check if covered by a wildcard
 				for wInc in wildcards {
 					let opts = wInc.split("*")
@@ -57,8 +60,8 @@ public class CORSheaders {
 					response.addHeader(.accessControlMaxAge, value: String(SessionConfig.CORS.maxAge))
 				}
 			}
-
+			
 		}
 	}
-
+	
 }
