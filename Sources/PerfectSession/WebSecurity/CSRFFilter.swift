@@ -12,18 +12,22 @@ public class CSRFFilter {
 	public init() {}
 
 	public static func filter(_ request: HTTPRequest) -> Bool {
-
+		guard let session = request.session else {
+			return false
+		}
 		// Declare and use csrfToken from within Session
 		var csrfTokenSession = ""
-		if let t = request.session.data["csrf"] { csrfTokenSession = t as! String }
+		if let t = session.data["csrf"] {
+			csrfTokenSession = t as! String
+		}
 
-		if request.session._state == "new" && request.method == .post {
+		if session._state == "new" && request.method == .post {
 			print("CSRF WARNING: NEW SESSION AND POST")
 			return false
 		}
 
 		// If new session, not really a proper check so return true
-		if request.session._state != "new" {
+		if session._state != "new" {
 			// check headers and if post method, if there's a token (if POST method)
 			if request.method == .post && SessionConfig.CSRF.checkHeaders {
 				if !CSRFSecurity.checkHeaders(request) {
@@ -63,11 +67,14 @@ public class CSRFFilter {
 
 	/// Called once before headers are sent to the client. If needed, sets the cookie with the CSRF token.
 	public static func setCookie(_ response: HTTPResponse) {
+		guard let session = response.request.session else {
+			return
+		}
 		var domain = ""
 		if !SessionConfig.cookieDomain.isEmpty {
 			domain = SessionConfig.cookieDomain
 		}
-		if let t = response.request.session.data["csrf"] {
+		if let t = session.data["csrf"] {
 			response.addCookie(HTTPCookie(
 				name: "CSRF-TOKEN",
 				value: "\(t)",

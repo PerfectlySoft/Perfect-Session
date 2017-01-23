@@ -38,10 +38,10 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 
 		var createSession = true
 		if let token = request.getCookie(name: SessionConfig.name) {
-			if let session = MemorySessions.sessions[token] {
+			if var session = MemorySessions.sessions[token] {
 				if session.isValid(request) {
+					session._state = "resume"
 					request.session = session
-					request.session._state = "resume"
 					createSession = false
 				} else {
 					MemorySessions.destroy(token: token)
@@ -54,7 +54,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		}
 
 		// Now process CSRF
-		if request.session._state != "new" || request.method == .post {
+		if request.session?._state != "new" || request.method == .post {
 			//print("Check CSRF Request: \(CSRFFilter.filter(request))")
 			if !CSRFFilter.filter(request) {
 
@@ -82,8 +82,11 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 
 	/// Called once before headers are sent to the client.
 	public func filterHeaders(response: HTTPResponse, callback: (HTTPResponseFilterResult) -> ()) {
-		MemorySessions.save(session: response.request.session)
-		let sessionID = response.request.session.token
+		guard let session = response.request.session else {
+			return callback(.continue)
+		}
+		MemorySessions.save(session: session)
+		let sessionID = session.token
 
 		// 0.0.6 updates
 		var domain = ""
