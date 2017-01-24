@@ -76,6 +76,12 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		// End. Continue
 		callback(HTTPRequestFilterResult.continue(request, response))
 	}
+
+	/// Wrapper enabling PerfectHTTP 2.1 filter support
+	public static func filterAPIRequest(data: [String:Any]) throws -> HTTPRequestFilter {
+		return SessionMemoryFilter()
+	}
+
 }
 
 extension SessionMemoryFilter: HTTPResponseFilter {
@@ -119,4 +125,10 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 	public func filterBody(response: HTTPResponse, callback: (HTTPResponseFilterResult) -> ()) {
 		callback(.continue)
 	}
+
+	/// Wrapper enabling PerfectHTTP 2.1 filter support
+	public static func filterAPIResponse(data: [String:Any]) throws -> HTTPResponseFilter {
+		return SessionMemoryFilter()
+	}
+
 }
