@@ -7,9 +7,9 @@
 //
 
 /*	Change History
-	====
-	0.0.6
-		Added to save cookie, ip and user agent
+====
+0.0.6
+Added to save cookie, ip and user agent
 */
 
 import TurnstileCrypto
@@ -42,8 +42,27 @@ public struct MemorySessions {
 	}
 
 	/// Deletes the session for a session identifier.
-	public static func destroy(token: String) {
-		MemorySessions.sessions.removeValue(forKey: token)
+	public static func destroy(_ request: HTTPRequest, _ response: HTTPResponse) {
+
+		MemorySessions.sessions.removeValue(forKey: (request.session?.token)!)
+
+		// Reset cookie to make absolutely sure it does not get recreated in some circumstances.
+		var domain = ""
+		if !SessionConfig.cookieDomain.isEmpty {
+			domain = SessionConfig.cookieDomain
+		}
+		response.addCookie(HTTPCookie(
+			name: SessionConfig.name,
+			value: "",
+			domain: domain,
+			expires: .relativeSeconds(SessionConfig.idle),
+			path: SessionConfig.cookiePath,
+			secure: SessionConfig.cookieSecure,
+			httpOnly: SessionConfig.cookieHTTPOnly,
+			sameSite: SessionConfig.cookieSameSite
+			)
+		)
+
 	}
 
 	public static func resume(token: String) throws -> PerfectSession {
@@ -57,7 +76,7 @@ public struct MemorySessions {
 		print("RESUMING?")
 		return returnSession
 	}
-
+	
 }
 
 

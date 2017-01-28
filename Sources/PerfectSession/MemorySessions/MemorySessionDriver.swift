@@ -7,11 +7,11 @@
 //
 
 /*	Change History
-	====
-	0.0.6
-		Added to response add cookie: cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
-	0.0.7
-		Added CSRF support
+====
+0.0.6
+Added to response add cookie: cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
+0.0.7
+Added CSRF support
 */
 
 import PerfectHTTP
@@ -44,7 +44,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 					request.session = session
 					createSession = false
 				} else {
-					MemorySessions.destroy(token: token)
+					MemorySessions.destroy(request, response)
 				}
 			}
 		}
@@ -91,9 +91,10 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 		guard let session = response.request.session else {
 			return callback(.continue)
 		}
-		MemorySessions.save(session: session)
 		let sessionID = session.token
-
+		if !session.token.isEmpty {
+			MemorySessions.save(session: session)
+		}
 		// 0.0.6 updates
 		var domain = ""
 		if !SessionConfig.cookieDomain.isEmpty {
@@ -130,5 +131,5 @@ extension SessionMemoryFilter: HTTPResponseFilter {
 	public static func filterAPIResponse(data: [String:Any]) throws -> HTTPResponseFilter {
 		return SessionMemoryFilter()
 	}
-
+	
 }
