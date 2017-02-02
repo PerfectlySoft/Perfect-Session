@@ -47,6 +47,17 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 					MemorySessions.destroy(request, response)
 				}
 			}
+		} else if let s = request.param(name: "session"), !s.isEmpty {
+			if var session = MemorySessions.sessions[s] {
+				if session.isValid(request) {
+					session._state = "resume"
+					request.session = session
+					createSession = false
+				} else {
+					MemorySessions.destroy(request, response)
+				}
+			}
+
 		}
 		if createSession {
 			//start new session
