@@ -64,6 +64,10 @@ public struct MemorySessions {
 		)
 
 	}
+	/// Non-static version
+	public func destroySession(_ request: HTTPRequest, _ response: HTTPResponse) {
+		MemorySessions.destroy(request, response)
+	}
 
 	public static func resume(token: String) throws -> PerfectSession {
 		var returnSession = PerfectSession()
@@ -73,7 +77,6 @@ public struct MemorySessions {
 			throw InvalidSessionError()
 		}
 		returnSession._state = "resume"
-		print("RESUMING?")
 		return returnSession
 	}
 	

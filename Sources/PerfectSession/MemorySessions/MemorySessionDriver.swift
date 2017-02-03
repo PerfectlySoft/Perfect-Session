@@ -34,30 +34,37 @@ public class SessionMemoryFilter {
 
 extension SessionMemoryFilter: HTTPRequestFilter {
 
-	public func filter(request: HTTPRequest, response: HTTPResponse, callback: (HTTPRequestFilterResult) -> ()) {
+	func processSession(_ request: HTTPRequest, _ response: HTTPResponse, _ s: PerfectSession) -> Bool {
+		var createSession = true
+		var session = s
+		if session.isValid(request) {
+			session._state = "resume"
+			request.session = session
+			createSession = false
+		} else {
+			MemorySessions.destroy(request, response)
+		}
+		return createSession
+	}
 
+	public func filter(request: HTTPRequest, response: HTTPResponse, callback: (HTTPRequestFilterResult) -> ()) {
 		var createSession = true
 		if let token = request.getCookie(name: SessionConfig.name) {
-			if var session = MemorySessions.sessions[token] {
-				if session.isValid(request) {
-					session._state = "resume"
-					request.session = session
-					createSession = false
-				} else {
-					MemorySessions.destroy(request, response)
-				}
+			// From Cookie
+			if let session = MemorySessions.sessions[token] {
+				createSession = processSession(request, response, session)
+			}
+		} else if let bearer = request.header(.authorization), !bearer.isEmpty {
+			// From Bearer Token
+			let b = bearer.chompLeft("Bearer ")
+			if let session = MemorySessions.sessions[b] {
+				createSession = processSession(request, response, session)
 			}
 		} else if let s = request.param(name: "session"), !s.isEmpty {
-			if var session = MemorySessions.sessions[s] {
-				if session.isValid(request) {
-					session._state = "resume"
-					request.session = session
-					createSession = false
-				} else {
-					MemorySessions.destroy(request, response)
-				}
+			// From Session Link
+			if let session = MemorySessions.sessions[s] {
+				createSession = processSession(request, response, session)
 			}
-
 		}
 		if createSession {
 			//start new session
