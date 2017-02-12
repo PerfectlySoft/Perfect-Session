@@ -18,10 +18,10 @@
 //
 
 /*	Change History
-	====
-	0.0.6
-		Added IP Address, USer Agent storage
-		Added isValid checks for IP And UA
+====
+0.0.6
+Added IP Address, USer Agent storage
+Added isValid checks for IP And UA
 */
 
 import Foundation
@@ -50,6 +50,7 @@ public struct PerfectSession {
 	/// UserAgent of Session
 	public var useragent		= ""
 
+	/// Session state
 	public var _state			= "recover"
 
 	/// When creating a new session, the "created" and "updated" properties are set

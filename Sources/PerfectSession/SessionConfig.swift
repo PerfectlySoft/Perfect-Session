@@ -7,9 +7,9 @@
 //
 
 /*	Change History
-	====
-	0.0.6
-		Added cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
+====
+0.0.6
+Added cookieDomain, cookiePath, cookieSecure, cookieHTTPOnly, cookieSameSite
 */
 
 import PerfectHTTP
@@ -59,6 +59,8 @@ public struct SessionConfig {
 	/// CORS Config
 	public static var CORS: CORSconfig = CORSconfig()
 
+	/// The route used to perform health check. No session is created.
+	public static var healthCheckRoute = "/healthcheck"
 
 
 
@@ -85,7 +87,7 @@ public struct SessionConfig {
 
 		/// Require Cookie-to-Header Token
 		public var requireToken = true
-		
+
 	}
 
 	public struct CORSconfig {
@@ -98,7 +100,7 @@ public struct SessionConfig {
 		/// Array of acceptable hostnames for incoming requets
 		/// To enable CORS on all, have a single entry, *
 		/// If a match with the origin is found, the origin is echoed back the client in the response
-		/// NOTE: If .enabled = true, but this is empty, then CORS will not be generated and therefore will be denied. 
+		/// NOTE: If .enabled = true, but this is empty, then CORS will not be generated and therefore will be denied.
 		public var acceptableHostnames = [String]()
 
 		/// Array of acceptable methods
@@ -108,7 +110,7 @@ public struct SessionConfig {
 		public var customHeaders = [String]()
 
 		/// Access-Control-Allow-Credentials true/false.
-		/// Standard CORS requests do not send or set any cookies by default. 
+		/// Standard CORS requests do not send or set any cookies by default.
 		/// In order to include cookies as part of the request enable the client to do so by setting to true
 		public var withCredentials = false
 
@@ -122,5 +124,5 @@ public struct SessionConfig {
 	public enum CSRFaction {
 		case fail, log, none
 	}
-
+	
 }
