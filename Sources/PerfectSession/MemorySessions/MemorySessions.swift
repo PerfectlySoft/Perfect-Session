@@ -12,8 +12,8 @@
 Added to save cookie, ip and user agent
 */
 
-import TurnstileCrypto
 import PerfectHTTP
+import Foundation
 
 public struct MemorySessions {
 	/// Dictionary of sessions
@@ -30,9 +30,8 @@ public struct MemorySessions {
 	}
 
 	public static func start(_ request: HTTPRequest) -> PerfectSession {
-		let rand = URandom()
 		var session = PerfectSession()
-		session.token = rand.secureToken
+		session.token = UUID().uuidString
 		session.ipaddress = request.remoteAddress.host
 		session.useragent = request.header(.userAgent) ?? "unknown"
 		session._state = "new"

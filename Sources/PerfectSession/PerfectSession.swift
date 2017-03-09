@@ -26,7 +26,6 @@ Added isValid checks for IP And UA
 
 import Foundation
 import PerfectHTTP
-import TurnstileCrypto
 
 /// Holds the session information in memory for duration of request
 public struct PerfectSession {
@@ -102,9 +101,8 @@ public struct PerfectSession {
 	}
 
 	public mutating func setCSRF(){
-		let rand = URandom()
 		let t = data["csrf"] as? String ?? ""
-		if t.isEmpty { data["csrf"] = rand.secureToken }
+		if t.isEmpty { data["csrf"] = UUID().uuidString }
 	}
 }
 
