@@ -62,7 +62,8 @@ public struct SessionConfig {
 	/// The route used to perform health check. No session is created.
 	public static var healthCheckRoute = "/healthcheck"
 
-
+	/// The interval at which the system should purge stale session entries
+	public static var purgeInterval: Int = 3600 // default: once per hour
 
 
 
