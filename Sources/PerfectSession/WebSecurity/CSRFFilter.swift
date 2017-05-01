@@ -15,6 +15,11 @@ public class CSRFFilter {
 		guard let session = request.session else {
 			return false
 		}
+
+		if !AuthFilter.shouldWeAccept(request.path){
+			return true
+		}
+
 		// Declare and use csrfToken from within Session
 		var csrfTokenSession = ""
 		if let t = session.data["csrf"] {
@@ -38,7 +43,7 @@ public class CSRFFilter {
 			if SessionConfig.CSRF.requireToken {
 				var csrfTokenIncoming = ""
 				var isCSRFHeaderToken = false
-//				print("params in CSRFFilter.filter \(request.params())")
+				//				print("params in CSRFFilter.filter \(request.params())")
 				if let t = request.param(name: "_csrf"), !t.isEmpty {
 					csrfTokenIncoming = t
 				} else if request.header(.contentType) == "application/json" {
@@ -48,10 +53,10 @@ public class CSRFFilter {
 						csrfTokenIncoming = t
 					}
 				}
-//				print("csrfTokenSession: \(csrfTokenSession)")
-//				print("csrfTokenIncoming: \(csrfTokenIncoming)")
-//				print("request.header(.xCsrfToken): \(request.header(.xCsrfToken))")
-//				print("request.header(.contentType): \(request.header(.contentType))")
+				//				print("csrfTokenSession: \(csrfTokenSession)")
+				//				print("csrfTokenIncoming: \(csrfTokenIncoming)")
+				//				print("request.header(.xCsrfToken): \(request.header(.xCsrfToken))")
+				//				print("request.header(.contentType): \(request.header(.contentType))")
 
 
 				// Double make sure of POST requests
@@ -87,7 +92,7 @@ public class CSRFFilter {
 			))
 		}
 	}
-
+	
 }
 
 

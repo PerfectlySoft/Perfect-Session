@@ -49,70 +49,35 @@ public struct AuthFilter {
 	/// The authentication configuration. Holds the routes to be included or excluded
 	public static var authenticationConfig = AuthenticationConfig()
 
-	/// Accept an auth config via init.
-	//	public init(_ cfg: AuthenticationConfig) {
-	//		authenticationConfig = cfg
-	//	}
+	public static func shouldWeAccept(_ path: String) -> Bool {
+		var checkAuth = false
 
-	/// Perform the filtering, with a callback allowing continuation of request, or galting immediately.
-	//	public static func filter(data: [String:Any]) throws -> HTTPRequestFilter {
-	////	public func filter(request: HTTPRequest, response: HTTPResponse, callback: (HTTPRequestFilterResult) -> ()) {
-	//
-	//		//		guard let denied = authenticationConfig.denied else {
-	//		//			callback(.continue(request, response))
-	//		//			return
-	//		//		}
-	//		var checkAuth = false
-	//		let wildcardInclusions = AuthFilter.authenticationConfig.inclusions.filter({$0.contains("*")})
-	//		let wildcardExclusions = AuthFilter.authenticationConfig.exclusions.filter({$0.contains("*")})
-	//
-	//		// check if specifically in inclusions
-	//		if authenticationConfig.inclusions.contains(request.path) { checkAuth = true }
-	//		// check if covered by a wildcard
-	//		for wInc in wildcardInclusions {
-	//			if request.path.startsWith(wInc.split("*")[0]) { checkAuth = true }
-	//		}
-	//
-	//		// ignore check if sepecified in exclusions
-	//		if authenticationConfig.exclusions.contains(request.path) { checkAuth = false }
-	//		// check if covered by a wildcard
-	//		for wInc in wildcardExclusions {
-	//			if request.path.startsWith(wInc.split("*")[0]) { checkAuth = false }
-	//		}
-	//
-	//		if checkAuth && !(request.session?.userid ?? "").isEmpty {
-	//			callback(.continue(request, response))
-	//			return
-	//		} else if checkAuth {
-	//			response.status = .unauthorized
-	//			callback(.halt(request, response))
-	//			return
-	//		}
-	//		callback(.continue(request, response))
-	//	}
+		let wildcardInclusions = AuthFilter.authenticationConfig.inclusions.filter({$0.contains("*")})
+		let wildcardExclusions = AuthFilter.authenticationConfig.exclusions.filter({$0.contains("*")})
+
+		// check if specifically in inclusions
+		if AuthFilter.authenticationConfig.inclusions.contains(path) { checkAuth = true }
+		// check if covered by a wildcard
+		for wInc in wildcardInclusions {
+			if path.startsWith(wInc.split("*")[0]) { checkAuth = true }
+		}
+
+		// ignore check if sepecified in exclusions
+		if AuthFilter.authenticationConfig.exclusions.contains(path) { checkAuth = false }
+		// check if covered by a wildcard
+		for wInc in wildcardExclusions {
+			if path.startsWith(wInc.split("*")[0]) { checkAuth = false }
+		}
+		print("checkAuth for \(path): \(checkAuth)")
+		return checkAuth
+	}
 
 	public static func filter(data: [String:Any]) throws -> HTTPRequestFilter {
 
 		struct filterRequest: HTTPRequestFilter {
 
 			func filter(request: HTTPRequest, response: HTTPResponse, callback: (HTTPRequestFilterResult) -> ()) {
-				var checkAuth = false
-				let wildcardInclusions = AuthFilter.authenticationConfig.inclusions.filter({$0.contains("*")})
-				let wildcardExclusions = AuthFilter.authenticationConfig.exclusions.filter({$0.contains("*")})
-
-				// check if specifically in inclusions
-				if AuthFilter.authenticationConfig.inclusions.contains(request.path) { checkAuth = true }
-				// check if covered by a wildcard
-				for wInc in wildcardInclusions {
-					if request.path.startsWith(wInc.split("*")[0]) { checkAuth = true }
-				}
-
-				// ignore check if sepecified in exclusions
-				if AuthFilter.authenticationConfig.exclusions.contains(request.path) { checkAuth = false }
-				// check if covered by a wildcard
-				for wInc in wildcardExclusions {
-					if request.path.startsWith(wInc.split("*")[0]) { checkAuth = false }
-				}
+				let checkAuth = AuthFilter.shouldWeAccept(request.path)
 
 				if checkAuth && !(request.session?.userid ?? "").isEmpty {
 					callback(.continue(request, response))
@@ -122,7 +87,7 @@ public struct AuthFilter {
 					callback(.halt(request, response))
 					return
 				}
-				
+
 				callback(.continue(request, response))
 			}
 		}
