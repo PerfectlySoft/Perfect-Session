@@ -68,7 +68,7 @@ public struct AuthFilter {
 		for wInc in wildcardExclusions {
 			if path.startsWith(wInc.split("*")[0]) { checkAuth = false }
 		}
-		print("checkAuth for \(path): \(checkAuth)")
+		//print("checkAuth for \(path): \(checkAuth)")
 		return checkAuth
 	}
 
