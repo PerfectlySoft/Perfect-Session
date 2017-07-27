@@ -43,7 +43,7 @@ public struct MemorySessions {
 	/// Deletes the session for a session identifier.
 	public static func destroy(_ request: HTTPRequest, _ response: HTTPResponse) {
 
-		MemorySessions.sessions.removeValue(forKey: (request.session?.token)!)
+		MemorySessions.sessions.removeValue(forKey: (request.session?.token ?? "") )
 
 		// Reset cookie to make absolutely sure it does not get recreated in some circumstances.
 		var domain = ""
@@ -78,8 +78,5 @@ public struct MemorySessions {
 		returnSession._state = "resume"
 		return returnSession
 	}
-	
+
 }
-
-
-
