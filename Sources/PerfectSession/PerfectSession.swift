@@ -52,6 +52,9 @@ public struct PerfectSession {
 	/// Session state
 	public var _state			= "recover"
 
+	/// Session state
+	public var _isOAuth2		= false
+
 	/// When creating a new session, the "created" and "updated" properties are set
 	public init(){
 		created = getNow()
