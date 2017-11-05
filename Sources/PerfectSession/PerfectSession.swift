@@ -90,7 +90,7 @@ public struct PerfectSession {
 		if (updated + idle) > getNow() {
 			if SessionConfig.IPAddressLock {
 				// set forwarded-for (comes from well-behaving load balancers)
-				let ff = request.header(.xForwardedFor) as String
+				let ff = request.header(.xForwardedFor) ?? ""
 
 				if !ff.isEmpty && ff != ipaddress {
 					// if ff is not empty, and it doesn't match ipaddress
