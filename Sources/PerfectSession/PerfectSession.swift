@@ -88,9 +88,20 @@ public struct PerfectSession {
 	/// Compares the timestamps and idle to determine if session has expired
 	public func isValid(_ request:HTTPRequest) -> Bool {
 		if (updated + idle) > getNow() {
-			if SessionConfig.IPAddressLock && request.remoteAddress.host != ipaddress {
+			if SessionConfig.IPAddressLock {
+				// set forwarded-for (comes from well-behaving load balancers)
+				let ff = request.header(.xForwardedFor) as String
+
+				if !ff.isEmpty && ff != ipaddress {
+					// if ff is not empty, and it doesn't match ipaddress
+					return false
+
+				} else if ff.isEmpty && request.remoteAddress.host != ipaddress {
+					// not an x-forwarded-for, and the ip adress is not correct
+				}
 				return false
 			}
+
 			if SessionConfig.userAgentLock && request.header(.userAgent) != useragent {
 				return false
 			}
