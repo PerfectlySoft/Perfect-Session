@@ -98,8 +98,8 @@ public struct PerfectSession {
 
 				} else if ff.isEmpty && request.remoteAddress.host != ipaddress {
 					// not an x-forwarded-for, and the ip adress is not correct
+					return false
 				}
-				return false
 			}
 
 			if SessionConfig.userAgentLock && request.header(.userAgent) != useragent {
