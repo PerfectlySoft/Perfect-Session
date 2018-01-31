@@ -1,4 +1,4 @@
-# Perfect Sessions (core library) [简体中文](README.zh_CN.md)
+# Perfect Sessions (core library)
 
 <p align="center">
     <a href="http://perfect.org/get-involved.html" target="_blank">
@@ -39,25 +39,25 @@
     </a>
 </p>
 
-The Perfect Session core library, with Memory Driver.
+Perfect Session 核心对象库，包括内存驱动
 
-Note that a demo is located at [https://github.com/PerfectExamples/Perfect-Session-Memory-Demo](https://github.com/PerfectExamples/Perfect-Session-Memory-Demo) that shows the operation of the in-memory driver included in the core library.
+演示程序可以在以下链接找到： [https://github.com/PerfectExamples/Perfect-Session-Memory-Demo](https://github.com/PerfectExamples/Perfect-Session-Memory-Demo) 用于展示如何通过内存驱动使用Session
 
-## Compatibility with Swift
+## Swift 兼容性
 
-The master branch of this project currently compiles with **Xcode 9.2** or the **Swift 4.0.3** toolchain on Ubuntu.
+目前本函数库与 **Xcode 9.2** 及 **Swift 4.0.3** 工具链兼容
 
-## Building
+## 编译
 
-Add this project as a dependency in your Package.swift file.
+请向Package.swift追加依存关系：
 
 ``` swift
 .Package(url:"https://github.com/PerfectlySoft/Perfect-Session.git", majorVersion: 3)
 ```
 
-## Database-Specific Drivers
+## 数据库驱动
 
-To use the Perfect Session driver with a database storage option (recommended) use one of the following database-specific modules:
+建议使用数据库作为保存会话过程的驱动，目前有效驱动包括：
 
 * [PostgreSQL](https://github.com/PerfectlySoft/Perfect-Session-PostgreSQL)
 * [MySQL](https://github.com/PerfectlySoft/Perfect-Session-MySQL)
@@ -66,17 +66,16 @@ To use the Perfect Session driver with a database storage option (recommended) u
 * [Redis](https://github.com/PerfectlySoft/Perfect-Session-Redis)
 * [SQLite](https://github.com/PerfectlySoft/Perfect-Session-SQLite)
 
-If you use one of the database-specific modules, you do not need to include this module as a dependancy, as it is already included.
+如果您需要使用上述任何一个驱动，请不要再引用本模块作为依存关系，直接应用即可。
 
-## Issues
+## 问题报告、内容贡献和客户支持
 
-We are transitioning to using JIRA for all bugs and support related issues, therefore the GitHub issues has been disabled.
+我们目前正在过渡到使用JIRA来处理所有源代码资源合并申请、修复漏洞以及其它有关问题。因此，GitHub 的“issues”问题报告功能已经被禁用了。
 
-If you find a mistake, bug, or any other helpful suggestion you'd like to make on the docs please head over to [http://jira.perfect.org:8080/servicedesk/customer/portal/1](http://jira.perfect.org:8080/servicedesk/customer/portal/1) and raise it.
+如果您发现了问题，或者希望为改进本文提供意见和建议，[请在这里指出](http://jira.perfect.org:8080/servicedesk/customer/portal/1).
 
-A comprehensive list of open issues can be found at [http://jira.perfect.org:8080/projects/ISS/issues](http://jira.perfect.org:8080/projects/ISS/issues)
+在您开始之前，请参阅[目前待解决的问题清单](http://jira.perfect.org:8080/projects/ISS/issues).
 
 
-
-## Further Information
-For more information on the Perfect project, please visit [perfect.org](http://perfect.org).
+## 更多信息
+关于本项目更多内容，请参考[perfect.org](http://perfect.org).
