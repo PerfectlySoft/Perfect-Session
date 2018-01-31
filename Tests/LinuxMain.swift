@@ -1,6 +1,6 @@
 import XCTest
-@testable import Perfect_SessionTests
+@testable import PerfectSessionTests
 
 XCTMain([
-     testCase(Perfect_SessionTests.allTests),
+     testCase(PerfectSessionTests.allTests),
 ])

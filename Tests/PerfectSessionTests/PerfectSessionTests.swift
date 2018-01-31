@@ -1,7 +1,7 @@
 import XCTest
 @testable import PerfectSession
 
-class Perfect_SessionTests: XCTestCase {
+class PerfectSessionTests: XCTestCase {
 //    func testExample() {
 //        // This is an example of a functional test case.
 //        // Use XCTAssert and related functions to verify your tests produce the correct results.
@@ -27,7 +27,7 @@ class Perfect_SessionTests: XCTestCase {
 //	}
 
 
-    static var allTests : [(String, (Perfect_SessionTests) -> () throws -> Void)] {
+    static var allTests : [(String, (PerfectSessionTests) -> () throws -> Void)] {
         return [
 			("testValids", testValids),
 //			("testValidWithArray", testValidWithArray),
