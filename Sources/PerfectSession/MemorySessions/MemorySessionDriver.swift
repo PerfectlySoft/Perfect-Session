@@ -54,7 +54,7 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 			if let session = MemorySessions.sessions[token] {
 				createSession = processSession(request, response, session)
 			}
-		} else if let bearer = request.header(.authorization), !bearer.isEmpty {
+		} else if let bearer = request.header(.authorization), !bearer.isEmpty, bearer.hasPrefix("Bearer ") {
 			// From Bearer Token
 			let b = String(bearer.dropFirst("Bearer ".count))
 			if let session = MemorySessions.sessions[b] {
