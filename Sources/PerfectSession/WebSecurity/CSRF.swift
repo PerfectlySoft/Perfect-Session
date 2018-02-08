@@ -95,8 +95,13 @@ public class CSRFSecurity {
 	}
 
 	static func killhttp(_ str: String) -> String {
-		var strr = str.dropFirst("http://".count)
-		strr = strr.dropFirst("https://".count)
-		return String(strr)
+		var strr = str
+		if strr.hasPrefix("http://") {
+			strr = String(str.dropFirst("http://".count))
+		}
+		if strr.hasPrefix("https://") {
+			strr = String(str.dropFirst("https://".count))
+		}
+		return strr
 	}
 }
