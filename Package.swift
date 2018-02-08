@@ -1,12 +1,23 @@
-// Generated automatically by Perfect Assistant Application
-// Date: 2016-12-14 18:10:35 +0000
+// swift-tools-version:4.0
+
 import PackageDescription
+
 let package = Package(
     name: "PerfectSession",
+    products: [
+        .library(
+            name: "PerfectSession",
+            targets: ["PerfectSession"]),
+    ],
     dependencies: [
-		.Package(url: "https://github.com/PerfectlySoft/Perfect-HTTP.git", majorVersion: 3),
-		.Package(url: "https://github.com/PerfectlySoft/Perfect-Logger.git", majorVersion: 3),
-		.Package(url: "https://github.com/iamjono/SwiftString.git", majorVersion: 2),
-		.Package(url: "https://github.com/PerfectlySoft/Perfect-Repeater.git", majorVersion: 1),
-	]
+        .package(url: "https://github.com/PerfectlySoft/Perfect-Logger.git", from: "3.0.5"),
+    ],
+    targets: [
+        .target(
+            name: "PerfectSession",
+            dependencies: ["PerfectLogger"]),
+        .testTarget(
+            name: "PerfectSessionTests",
+            dependencies: ["PerfectSession"]),
+    ]
 )
