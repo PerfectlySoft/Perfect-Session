@@ -7,7 +7,6 @@
 //
 
 import PerfectHTTP
-import SwiftString
 
 
 /// Sets up the matrix of which routes are checked for authentication, and which are not.
@@ -58,14 +57,14 @@ public struct AuthFilter {
 		if AuthFilter.authenticationConfig.inclusions.contains(path) { checkAuth = true }
 		// check if covered by a wildcard
 		for wInc in wildcardInclusions {
-			if path.startsWith(wInc.split("*")[0]) { checkAuth = true }
+			if path.starts(with: wInc.split(separator: "*")[0]) { checkAuth = true }
 		}
 
 		// ignore check if sepecified in exclusions
 		if AuthFilter.authenticationConfig.exclusions.contains(path) { checkAuth = false }
 		// check if covered by a wildcard
 		for wInc in wildcardExclusions {
-			if path.startsWith(wInc.split("*")[0]) { checkAuth = false }
+			if path.starts(with: wInc.split(separator: "*")[0]) { checkAuth = false }
 		}
 		//print("checkAuth for \(path): \(checkAuth)")
 		return checkAuth

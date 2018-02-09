@@ -33,7 +33,6 @@ JavaScript running from a rogue file or email will not be able to read it and co
 */
 
 import PerfectHTTP
-import SwiftString
 
 public class CSRFSecurity {
 
@@ -96,9 +95,12 @@ public class CSRFSecurity {
 	}
 
 	static func killhttp(_ str: String) -> String {
-		var strr = str
-		strr = strr.chompLeft("http://")
-		strr = strr.chompLeft("https://")
-		return strr
+		if str.hasPrefix("http://") {
+			return String(str.dropFirst("http://".count))
+		} else if str.hasPrefix("https://") {
+			return String(str.dropFirst("https://".count))
+		} else {
+			return str
+		}
 	}
 }

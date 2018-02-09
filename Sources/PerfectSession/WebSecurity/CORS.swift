@@ -33,9 +33,9 @@ public class CORSheaders {
             } else if wildcards.count > 0 {
                 // check if covered by a wildcard
                 for wInc in wildcards {
-                    let opts = wInc.split("*")
-                    if origin.startsWith(opts[0]) { corsOK = true }
-                    if origin.endsWith(opts.last!) { corsOK = true }
+                    let opts = wInc.split(separator: "*")
+                    if origin.starts(with: opts[0]) { corsOK = true }
+                    if let last = opts.last, origin.hasSuffix(String.init(last)) { corsOK = true }
                 }
             }
             
