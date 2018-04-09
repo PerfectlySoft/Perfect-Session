@@ -57,7 +57,8 @@ public struct AuthFilter {
 		if AuthFilter.authenticationConfig.inclusions.contains(path) { checkAuth = true }
 		// check if covered by a wildcard
 		for wInc in wildcardInclusions {
-			if path.starts(with: wInc.split(separator: "*")[0]) { checkAuth = true }
+			if wInc == "*" { checkAuth = true }
+			else if path.starts(with: wInc.split(separator: "*")[0]) { checkAuth = true }
 		}
 
 		// ignore check if sepecified in exclusions
