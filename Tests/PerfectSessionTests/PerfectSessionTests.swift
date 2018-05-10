@@ -1,12 +1,8 @@
 import XCTest
+import Foundation
 @testable import PerfectSession
 
 class PerfectSessionTests: XCTestCase {
-//    func testExample() {
-//        // This is an example of a functional test case.
-//        // Use XCTAssert and related functions to verify your tests produce the correct results.
-//        XCTAssertEqual(Perfect_Session().text, "Hello, World!")
-//    }
 
 	func testValids() {
 		XCTAssert(CSRFSecurity.isValid(origin: "www.example.com", host: "www.example.com"))
@@ -16,21 +12,24 @@ class PerfectSessionTests: XCTestCase {
 		XCTAssert(CSRFSecurity.isValid(origin: "www.example.com", host: "") == false)
 	}
 
-
-//	func testValidWithArray() {
-//		SessionConfig.CSRFacceptableHostnames.append("www.example2.com")
-//		SessionConfig.CSRFacceptableHostnames.append("something.example2.com")
-//		XCTAssert(CSRFSecurity.isValid(origin: "www.example2.com", host: ""))
-//		XCTAssert(CSRFSecurity.isValid(origin: "www.example.com", host: "") == false)
-//		XCTAssert(CSRFSecurity.isValid(origin: "example.com", host: "") == false)
-//		XCTAssert(CSRFSecurity.isValid(origin: "something.example2.com", host: ""))
-//	}
-
+	func testMemory() {
+		let token = UUID().uuidString
+		var session = PerfectSession()
+		session.token = token
+		
+		XCTAssertNil(MemorySessions.get(key: token))
+		MemorySessions.set(key: token, session)
+		let fnd = MemorySessions.get(key: token)
+		XCTAssertNotNil(fnd)
+		XCTAssertEqual(fnd!.token, token)
+		MemorySessions.remove(key: token)
+		XCTAssertNil(MemorySessions.get(key: token))
+	}
 
     static var allTests : [(String, (PerfectSessionTests) -> () throws -> Void)] {
         return [
 			("testValids", testValids),
-//			("testValidWithArray", testValidWithArray),
+			("testMemory", testMemory),
         ]
     }
 }

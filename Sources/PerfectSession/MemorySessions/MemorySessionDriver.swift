@@ -51,18 +51,18 @@ extension SessionMemoryFilter: HTTPRequestFilter {
 		var createSession = true
 		if let token = request.getCookie(name: SessionConfig.name) {
 			// From Cookie
-			if let session = MemorySessions.sessions[token] {
+			if let session = MemorySessions.get(key: token) {
 				createSession = processSession(request, response, session)
 			}
 		} else if let bearer = request.header(.authorization), !bearer.isEmpty {
 			// From Bearer Token
 			let b = bearer.hasPrefix("Bearer ") ? String(bearer.dropFirst("Bearer ".count)) : bearer
-			if let session = MemorySessions.sessions[b] {
+			if let session = MemorySessions.get(key: b) {
 				createSession = processSession(request, response, session)
 			}
 		} else if let s = request.param(name: "session"), !s.isEmpty {
 			// From Session Link
-			if let session = MemorySessions.sessions[s] {
+			if let session = MemorySessions.get(key: s) {
 				createSession = processSession(request, response, session)
 			}
 		}

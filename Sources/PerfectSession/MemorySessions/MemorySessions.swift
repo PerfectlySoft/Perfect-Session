@@ -14,19 +14,39 @@ Added to save cookie, ip and user agent
 
 import PerfectHTTP
 import Foundation
+import Dispatch
 
 public struct MemorySessions {
 	/// Dictionary of sessions
-	public static var sessions = [String: PerfectSession]()
+	private static var syncSessions = [String: PerfectSession]()
+	private static let syncQueue = DispatchQueue(label: "MemorySessions")
 
-	/// Initializes the Session Manager. No config needed!
+	public static func get(key: String) -> PerfectSession? {
+		return syncQueue.sync {
+			return syncSessions[key]
+		}
+	}
+	
+	public static func set(key: String, _ session: PerfectSession) {
+		syncQueue.sync {
+			syncSessions[key] = session
+		}
+	}
+	
+	public static func remove(key: String) {
+		syncQueue.sync {
+			_ = syncSessions.removeValue(forKey: key)
+		}
+	}
+	
+	/// Initializes the Session Manager. No config needed.
 	private init() {}
 
 
 	public static func save(session: PerfectSession) {
 		var s = session
 		s.touch()
-		MemorySessions.sessions[session.token] = s
+		MemorySessions.set(key: session.token, s)
 	}
 
 	public static func start(_ request: HTTPRequest) -> PerfectSession {
@@ -45,14 +65,15 @@ public struct MemorySessions {
 		session.useragent = request.header(.userAgent) ?? "unknown"
 		session._state = "new"
 		session.setCSRF()
-		MemorySessions.sessions[session.token] = session
+		MemorySessions.set(key: session.token, session)
 		return session
 	}
 
 	/// Deletes the session for a session identifier.
 	public static func destroy(_ request: HTTPRequest, _ response: HTTPResponse) {
-
-		MemorySessions.sessions.removeValue(forKey: (request.session?.token ?? "") )
+		if let token = request.session?.token {
+			MemorySessions.remove(key: token)
+		}
 
 		// Reset cookie to make absolutely sure it does not get recreated in some circumstances.
 		var domain = ""
@@ -79,7 +100,7 @@ public struct MemorySessions {
 
 	public static func resume(token: String) throws -> PerfectSession {
 		var returnSession = PerfectSession()
-		if let session = MemorySessions.sessions[token] {
+		if let session = MemorySessions.get(key: token) {
 			returnSession = session
 		} else {
 			throw InvalidSessionError()
