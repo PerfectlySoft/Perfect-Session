@@ -65,7 +65,8 @@ public struct SessionConfig {
 	/// The interval at which the system should purge stale session entries
 	public static var purgeInterval: Int = 3600 // default: once per hour
 
-
+	/// Specify if we want an OAuth2 behaviour
+	public static var isOAuth2 = false
 
 	/// CSRF Configuration
 	public struct CSRFconfig {
