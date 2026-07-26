@@ -5,28 +5,28 @@
         <img src="https://img.shields.io/badge/Swift-6.2-orange.svg?style=flat" alt="Swift 6.2">
     </a>
     <a href="https://developer.apple.com/swift/" target="_blank">
-        <img src="https://img.shields.io/badge/Platforms-macOS%2026-lightgray.svg?style=flat" alt="Platforms macOS 26">
+        <img src="https://img.shields.io/badge/Platforms-macOS%2012-lightgray.svg?style=flat" alt="Platforms macOS 12">
     </a>
     <a href="LICENSE" target="_blank">
         <img src="https://img.shields.io/badge/License-Apache--2.0-lightgrey.svg?style=flat" alt="License Apache-2.0">
     </a>
 </p>
 
-The Perfect Session core library, resurrected for Swift 6.2 / macOS 26. This is `taplin/Perfect-Session`, a fork within the [Perfect-Resurrection](https://github.com/taplin/Perfect-Resurrection) project — not the original PerfectlySoft codebase evolving, but a from-scratch rewrite of its API surface targeting the modern Swift toolchain and strict concurrency.
+The Perfect Session core library, resurrected for Swift 6.2 / macOS 12. This is `taplin/Perfect-Session`, a fork within the [Perfect-Resurrection](https://github.com/taplin/Perfect-Resurrection) project — not the original PerfectlySoft codebase evolving, but a from-scratch rewrite of its API surface targeting the modern Swift toolchain and strict concurrency.
 
-**Status: core, in-use package.** [Perfect-Lasso](https://github.com/taplin/Perfect-Lasso) — a Swift reimplementation of the Lasso language, still in active development and not yet production-ready, though validated against real code from multiple production e-commerce sites — depends on this package directly (as a local path dependency) to back its session handling. Of the four storage backends this package ships, **MySQL is the one actually configured and exercised in Perfect-Lasso's development/validation setup** (`LASSO_SESSION_DRIVER=mysql`); PostgreSQL, Redis, and SQLite are real, fully implemented, tested alternatives available for a future backend swap, not currently the selected backend.
+**Status: core, in-use package.** [Perfect-Lasso](https://github.com/taplin/Perfect-Lasso) — a Swift reimplementation of the Lasso language, still in active development and not yet production-ready, though validated against real code from multiple production e-commerce sites — depends on this package directly (via `.package(url:, branch: "main")`) to back its session handling. Of the four storage backends this package ships, **MySQL is the one actually configured and exercised in Perfect-Lasso's development/validation setup** (`LASSO_SESSION_DRIVER=mysql`); PostgreSQL, Redis, and SQLite are real, fully implemented, tested alternatives available for a future backend swap, not currently the selected backend.
 
 ## Compatibility with Swift
 
-`Package.swift` declares `swift-tools-version: 6.2` and `platforms: [.macOS(.v26)]`. The default branch is `main`. All 10 targets (5 libraries + 5 test targets) build under `.swiftLanguageMode(.v6)` — full Swift 6 strict-concurrency mode, repo-wide, not opt-in per file. `SessionDriver` is a fully `async`/`await` protocol (`create`/`resume`/`save`/`destroy`/`clean`/`setup` are all `async`, `resume` also `throws`) and is itself `Sendable`; `PerfectSession` and `MemorySessionDriver` are `@unchecked Sendable` with doc-comments justifying the escape hatch (JSON-safe `[String: Any]` payload, NSLock-protected mutable dictionary). No iOS/tvOS/watchOS/Linux platforms are declared — this is macOS-only today.
+`Package.swift` declares `swift-tools-version: 6.2` and `platforms: [.macOS(.v12)]`. The default branch is `main`. All 10 targets (5 libraries + 5 test targets) build under `.swiftLanguageMode(.v6)` — full Swift 6 strict-concurrency mode, repo-wide, not opt-in per file. `SessionDriver` is a fully `async`/`await` protocol (`create`/`resume`/`save`/`destroy`/`clean`/`setup` are all `async`, `resume` also `throws`) and is itself `Sendable`; `PerfectSession` and `MemorySessionDriver` are `@unchecked Sendable` with doc-comments justifying the escape hatch (JSON-safe `[String: Any]` payload, NSLock-protected mutable dictionary). No iOS/tvOS/watchOS/Linux platforms are declared — this is macOS-only today.
 
 ## Building
 
-This package is consumed as a local path dependency inside the Perfect-Resurrection monorepo, where sibling packages are checked out next to each other on disk. Add it to your `Package.swift`:
+Add it to your `Package.swift`:
 
 ``` swift
 dependencies: [
-    .package(path: "../Perfect-Session"),
+    .package(url: "https://github.com/taplin/Perfect-Session.git", branch: "main"),
 ],
 targets: [
     .target(
