@@ -12,10 +12,10 @@ let package = Package(
         .library(name: "PerfectSessionSQLite",        targets: ["PerfectSessionSQLite"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/taplin/Perfect-MySQL.git", branch: "main"),
-        .package(url: "https://github.com/taplin/Perfect-PostgreSQL.git", branch: "main"),
-        .package(url: "https://github.com/taplin/Perfect-Redis.git", branch: "main"),
-        .package(url: "https://github.com/taplin/Perfect-SQLite.git", branch: "main"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-MySQL.git", branch: "main"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-PostgreSQL.git", branch: "main"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-Redis.git", branch: "main"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-SQLite.git", branch: "main"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     ],
     targets: [

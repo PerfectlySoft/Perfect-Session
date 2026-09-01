@@ -12,9 +12,15 @@
     </a>
 </p>
 
-The Perfect Session core library, resurrected for Swift 6.2 / macOS 12. This is `taplin/Perfect-Session`, a fork within the [Perfect-Resurrection](https://github.com/taplin/Perfect-Resurrection) project — not the original PerfectlySoft codebase evolving, but a from-scratch rewrite of its API surface targeting the modern Swift toolchain and strict concurrency.
+The Perfect Session core library, resurrected for Swift 6.2 / macOS 12 — a from-scratch rewrite of
+the original API surface targeting the modern Swift toolchain and strict concurrency. This package
+**consolidates** what used to be separate `Perfect-Session-MySQL`/`-PostgreSQL`/`-Redis`/`-SQLite`
+repos into one package with four backend products; those repos are superseded by this one.
+`Perfect-Session-CouchDB` and `Perfect-Session-MongoDB` are **not** superseded — CouchDB and MongoDB
+support was deliberately not carried forward into this rewrite (see below).
 
-**Status: core, in-use package.** [Perfect-Lasso](https://github.com/taplin/Perfect-Lasso) — a Swift reimplementation of the Lasso language, still in active development and not yet production-ready, though validated against real code from multiple production e-commerce sites — depends on this package directly (via `.package(url:, branch: "main")`) to back its session handling. Of the four storage backends this package ships, **MySQL is the one actually configured and exercised in Perfect-Lasso's development/validation setup** (`LASSO_SESSION_DRIVER=mysql`); PostgreSQL, Redis, and SQLite are real, fully implemented, tested alternatives available for a future backend swap, not currently the selected backend.
+**Status:** core, in-use package with four fully implemented, tested storage backends
+(MySQL/PostgreSQL/Redis/SQLite) — pick whichever matches your existing infrastructure.
 
 ## Compatibility with Swift
 
@@ -26,7 +32,7 @@ Add it to your `Package.swift`:
 
 ``` swift
 dependencies: [
-    .package(url: "https://github.com/taplin/Perfect-Session.git", branch: "main"),
+    .package(url: "https://github.com/PerfectlySoft/Perfect-Session.git", branch: "main"),
 ],
 targets: [
     .target(
@@ -57,4 +63,7 @@ CouchDB and MongoDB drivers from the original PerfectlySoft project were **not**
 
 ## Further Information
 
-This package is part of Tim's [Perfect-Resurrection](https://github.com/taplin/Perfect-Resurrection) project, a Swift 6 resurrection of the archived PerfectlySoft framework family. Sibling path-dependencies (`Perfect-MySQL`, `Perfect-PostgreSQL`, `Perfect-Redis`, `Perfect-SQLite`) are expected to be checked out as sibling directories on disk, matching the relative `../` paths in `Package.swift`.
+The pre-Swift-6 version of this package is preserved on the [`legacy`](../../tree/legacy) branch.
+Its backend driver dependencies (`Perfect-MySQL`, `Perfect-PostgreSQL`, `Perfect-Redis`,
+`Perfect-SQLite`) are real `url:` dependencies resolved by SwiftPM automatically — no sibling
+checkout needed.
