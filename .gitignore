@@ -5,3 +5,6 @@
 Package.swift.orig
 Package.pins
 Package.resolved
+
+# Local SwiftPM dependency mirrors (machine-specific absolute paths, never commit)
+.swiftpm/
