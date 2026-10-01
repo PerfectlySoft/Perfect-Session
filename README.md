@@ -15,12 +15,12 @@
 The Perfect Session core library, resurrected for Swift 6.2 / macOS 12 — a from-scratch rewrite of
 the original API surface targeting the modern Swift toolchain and strict concurrency. This package
 **consolidates** what used to be separate `Perfect-Session-MySQL`/`-PostgreSQL`/`-Redis`/`-SQLite`
-repos into one package with four backend products; those repos are superseded by this one.
-`Perfect-Session-CouchDB` and `Perfect-Session-MongoDB` are **not** superseded — CouchDB and MongoDB
-support was deliberately not carried forward into this rewrite (see below).
+repos into one package with backend products; those repos are superseded by this one. MongoDB
+support was added back as a fifth backend built on [Perfect-MongoDB](https://github.com/PerfectlySoft/Perfect-MongoDB)
+4.x, superseding `Perfect-Session-MongoDB`. `Perfect-Session-CouchDB` was not carried forward.
 
-**Status:** core, in-use package with four fully implemented, tested storage backends
-(MySQL/PostgreSQL/Redis/SQLite) — pick whichever matches your existing infrastructure.
+**Status:** core, in-use package with five fully implemented, tested storage backends
+(MySQL/PostgreSQL/Redis/SQLite/MongoDB) — pick whichever matches your existing infrastructure.
 
 ## Compatibility with Swift
 
@@ -56,14 +56,15 @@ Unlike the original upstream project, the database-specific drivers are **not se
 * **PerfectSessionPostgreSQL** — depends on `PerfectPostgreSQL` (`../Perfect-PostgreSQL`). Fully implemented and tested; not currently the selected driver.
 * **PerfectSessionRedis** — depends on `PerfectRedis` (`../Perfect-Redis`) and `swift-log`. Fully implemented and tested; not currently the selected driver.
 * **PerfectSessionSQLite** — depends on `PerfectSQLite` (`../Perfect-SQLite`) and `swift-log`. Fully implemented and tested; not currently the selected driver.
+* **PerfectSessionMongoDB** — depends on `PerfectMongoDB` 4.x and `swift-log`, and needs libmongoc 2 installed (see the [Perfect-MongoDB README](https://github.com/PerfectlySoft/Perfect-MongoDB#requirements)). Each session is a document keyed by its token, with `data` stored as a subdocument. `setup()` adds a TTL index so MongoDB deletes expired sessions itself. Configure it with `MongoDBSessionConnector` (`uri`, `database`, `collection`), or pass a URI or an existing `MongoClientPool` to its initializer. Tests run with `MONGODB_TESTS=1` (and optionally `MONGODB_URI`).
 
 Each driver has its own matching test target (`PerfectSessionMySQLTests`, etc.) alongside `PerfectSessionCoreTests`. Simply depend on the product for the backend you want (see **Building** above) — there is no need to add anything beyond this package.
 
-CouchDB and MongoDB drivers from the original PerfectlySoft project were **not** carried over into this resurrection and do not exist anywhere in this repo.
+The CouchDB driver from the original PerfectlySoft project was **not** carried over into this resurrection.
 
 ## Further Information
 
 The pre-Swift-6 version of this package is preserved on the [`legacy`](../../tree/legacy) branch.
 Its backend driver dependencies (`Perfect-MySQL`, `Perfect-PostgreSQL`, `Perfect-Redis`,
-`Perfect-SQLite`) are real `url:` dependencies resolved by SwiftPM automatically — no sibling
+`Perfect-SQLite`, `Perfect-MongoDB`) are real `url:` dependencies resolved by SwiftPM automatically — no sibling
 checkout needed.
