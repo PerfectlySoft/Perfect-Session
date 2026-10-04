@@ -17,7 +17,7 @@ let package = Package(
         .package(url: "https://github.com/PerfectlySoft/Perfect-PostgreSQL.git", branch: "main"),
         .package(url: "https://github.com/PerfectlySoft/Perfect-Redis.git", branch: "main"),
         .package(url: "https://github.com/PerfectlySoft/Perfect-SQLite.git", branch: "main"),
-        .package(url: "https://github.com/PerfectlySoft/Perfect-MongoDB.git", from: "4.0.1"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-MongoDB.git", from: "4.0.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     ],
     targets: [

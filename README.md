@@ -22,9 +22,7 @@ repos into one package with a product per backend; those repos are superseded by
 ## Requirements
 
 - Swift 6.2 or later (`swift-tools-version: 6.2`). Every target builds in Swift 6 language mode.
-- macOS 12 or later, or Linux. On Linux (tested with Swift 6.4 on Ubuntu 24.04), the core and the MySQL,
-  PostgreSQL, Redis and MongoDB backends build. The **SQLite backend is macOS-only for now**, because
-  Perfect-SQLite uses the SQLite module from Apple's SDK.
+- macOS 12 or later, or Linux. Every backend builds on Linux (tested with Swift 6.4 on Ubuntu 26.04).
 - Each backend needs its database's client library; see the list below.
 
 ## Building
@@ -77,12 +75,26 @@ variables in that test file.
 | `PerfectSessionMySQL` | [Perfect-MySQL](https://github.com/PerfectlySoft/Perfect-MySQL) | MySQL client library (`libmysqlclient`) | `MYSQL_TESTS` |
 | `PerfectSessionPostgreSQL` | [Perfect-PostgreSQL](https://github.com/PerfectlySoft/Perfect-PostgreSQL) | `libpq` | `PG_TESTS` |
 | `PerfectSessionRedis` | [Perfect-Redis](https://github.com/PerfectlySoft/Perfect-Redis), `swift-log` | — | `REDIS_TESTS` |
-| `PerfectSessionSQLite` | [Perfect-SQLite](https://github.com/PerfectlySoft/Perfect-SQLite), `swift-log` | macOS (SQLite from the SDK) | `SQLITE_TESTS` |
+| `PerfectSessionSQLite` | [Perfect-SQLite](https://github.com/PerfectlySoft/Perfect-SQLite), `swift-log` | macOS, Linux (`libsqlite3-dev` on Linux) | `SQLITE_TESTS` |
 | `PerfectSessionMongoDB` | [Perfect-MongoDB](https://github.com/PerfectlySoft/Perfect-MongoDB) 4.x, `swift-log` | libmongoc 2 ([requirements](https://github.com/PerfectlySoft/Perfect-MongoDB#requirements)) | `MONGODB_TESTS` |
 
 The **MongoDB** backend stores each session as a document keyed by its token, with `data` as a subdocument.
 Its `setup()` adds a TTL index, so MongoDB deletes expired sessions itself. Besides `MongoDBSessionConnector`
 (`uri`, `database`, `collection`), you can pass a URI or an existing `MongoClientPool` to its initializer.
+`save` only updates a session that still exists, so a save that races a logout can't bring the session back;
+a session that was never stored (its `create` failed) or has already expired isn't stored by `save` either.
+libmongoc rejects an empty key, and a key is cut short at a NUL, so keys in `data` are escaped at every depth:
+`%` is stored as `%25`, NUL as `%00`, and the empty key as `%`. Other keys are stored as is, so queries such as
+`data.role` keep working.
+
+### Migrating from Perfect-Session-MongoDB
+
+The archived `Perfect-Session-MongoDB` stored each session under its own `_id`, with the token in a `token`
+field, `data` as JSON text, and no expiry date. The MongoDB backend can't read those documents, so existing
+sessions end when you switch and users sign in again. The TTL index never removes them either, so if you point
+the new driver at the old collection, `setup()` deletes them: documents with a string `token`, string `data`,
+`created`, `updated` and `idle` fields, and no `expiresAt`. Run `setup()` again once no old instances are left
+writing to the collection. To keep the old documents, use a different `collection`.
 
 ## Further information
 

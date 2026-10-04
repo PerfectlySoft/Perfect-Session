@@ -3,7 +3,8 @@ import Foundation
 @testable import PerfectSessionMySQL
 import PerfectSessionCore
 
-@Suite struct PerfectSessionMySQLTests {
+// Serialized: each test sets the connector's global settings.
+@Suite(.serialized) struct PerfectSessionMySQLTests {
 
     static let mysqlEnabled = ProcessInfo.processInfo.environment["MYSQL_TESTS"] == "1"
 

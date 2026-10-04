@@ -3,7 +3,8 @@ import Foundation
 @testable import PerfectSessionPostgreSQL
 import PerfectSessionCore
 
-@Suite struct PerfectSessionPostgreSQLTests {
+// Serialized: each test sets the connector's global settings.
+@Suite(.serialized) struct PerfectSessionPostgreSQLTests {
 
     static let pgEnabled = ProcessInfo.processInfo.environment["PG_TESTS"] == "1"
 

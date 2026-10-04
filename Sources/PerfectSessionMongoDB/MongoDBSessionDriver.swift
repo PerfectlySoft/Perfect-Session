@@ -18,10 +18,16 @@ public struct MongoDBSessionConnector: Sendable {
 ///     { _id: <token>, userid, created, updated, idle, ipaddress, useragent,
 ///       data: { ... }, expiresAt: <Date> }
 ///
-/// `data` is a real subdocument, not JSON text. `setup()` adds a TTL index on `expiresAt`
-/// (`updated + idle`), so MongoDB deletes expired sessions on its own; `clean()` still
-/// deletes them immediately for callers that rely on it. Like the other drivers, `resume`
-/// returns expired sessions too: callers check `PerfectSession.isValid()`.
+/// `data` is a real subdocument, not JSON text. Keys libmongoc won't store are escaped (see
+/// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`), so MongoDB
+/// deletes expired sessions on its own; `clean()` still deletes them immediately for callers
+/// that rely on it. Like the other drivers, `resume` returns expired sessions too: callers
+/// check `PerfectSession.isValid()`.
+///
+/// `save` only updates an existing session, so a save racing a `destroy` (logout) can't bring
+/// the session back. `setup()` also deletes documents left by the archived Perfect-Session-MongoDB
+/// package (keyed by `token`, with no `expiresAt`): this driver can't resume them and the TTL
+/// index never expires them.
 ///
 /// All database work goes through a `MongoClientPool`, off Swift's cooperative thread pool.
 public final class MongoDBSessionDriver: SessionDriver, Sendable {
@@ -65,6 +71,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         } catch {
             logger.error("session setup failed: \(error)")
         }
+        await purgeLegacySessions()
     }
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
@@ -103,8 +110,13 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
     public func save(_ session: PerfectSession) async {
         let document = SessionDocument(session)
         do {
-            _ = try await withCollection { sessions in
-                try sessions.replaceOne(filter: Self.filter(token: document._id), with: document, upsert: true)
+            let matched = try await withCollection { sessions in
+                try sessions.replaceOne(filter: Self.filter(token: document._id), with: document, upsert: false)
+            }
+            if matched == 0 {
+                // Expected after a logout when middleware saves at the end of the request.
+                logger.debug("session save matched no session (destroyed or expired); not recreated",
+                             metadata: ["eventid": "\(session.token)"])
             }
         } catch {
             logger.error("session save failed: \(error)", metadata: ["eventid": "\(session.token)"])
@@ -136,6 +148,27 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
 
     // MARK: - Private helpers
 
+    /// Deletes documents written by the archived Perfect-Session-MongoDB: `{_id, token, userid,
+    /// created, updated, idle, data, ipaddress, useragent}` with `data` as JSON text and no
+    /// `expiresAt`. Documents this driver writes always have `expiresAt` and never a `token` field;
+    /// the rest of the shape keeps unrelated documents that happen to have a `token` safe.
+    private func purgeLegacySessions() async {
+        let filter = #"""
+            {"token": {"$type": "string"}, "data": {"$type": "string"}, "created": {"$exists": true},
+             "updated": {"$exists": true}, "idle": {"$exists": true}, "expiresAt": {"$exists": false}}
+            """#
+        do {
+            let deleted = try await withCollection { sessions in
+                try sessions.deleteMany(filter: try BSON(json: filter))
+            }
+            if deleted > 0 {
+                logger.notice("deleted \(deleted) legacy Perfect-Session-MongoDB session(s)")
+            }
+        } catch {
+            logger.error("legacy session purge failed: \(error)")
+        }
+    }
+
     private func withCollection<T: Sendable>(_ body: @Sendable @escaping (MongoCollection) throws -> T) async throws -> T {
         let database = self.database
         let collection = self.collection
@@ -156,6 +189,10 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
 }
 
 /// The stored form of a `PerfectSession`.
+///
+/// libmongoc rejects an empty key, and a key containing NUL would be cut short, so keys in
+/// `data` (at any depth) are escaped: `%` → `%25`, NUL → `%00`, and the empty key → `%`.
+/// Every other key is stored as is, so queries like `data.role` keep working.
 struct SessionDocument: Codable, Sendable {
     var _id: String
     var userid: String
@@ -176,7 +213,8 @@ struct SessionDocument: Codable, Sendable {
         ipaddress = session.ipaddress
         useragent = session.useragent
         // Through JSON text, not [String: Any] casts: on Darwin a JSON true and 1 are both NSNumber.
-        data      = (try? JSONDecoder().decode(JSONValue.self, from: Data(session.tojson().utf8))) ?? .object([:])
+        data      = ((try? JSONDecoder().decode(JSONValue.self, from: Data(session.tojson().utf8))) ?? .object([:]))
+            .mappingKeys(Self.escape)
         expiresAt = Date(timeIntervalSince1970: TimeInterval(session.updated + session.idle))
     }
 
@@ -189,10 +227,55 @@ struct SessionDocument: Codable, Sendable {
         session.idle      = idle
         session.ipaddress = ipaddress
         session.useragent = useragent
-        if let json = try? JSONEncoder().encode(data) {
+        if let json = try? JSONEncoder().encode(data.mappingKeys(Self.unescape)) {
             session.fromjson(String(decoding: json, as: UTF8.self))
         }
         return session
+    }
+
+    static func escape(_ key: String) -> String {
+        guard !key.isEmpty else {
+            return "%"
+        }
+        guard key.utf8.contains(where: { $0 == 0x25 || $0 == 0 }) else {
+            return key
+        }
+        var bytes: [UInt8] = []
+        for byte in key.utf8 {
+            switch byte {
+            case 0x25: bytes += Array("%25".utf8)
+            case 0:    bytes += Array("%00".utf8)
+            default:   bytes.append(byte)
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    static func unescape(_ key: String) -> String {
+        guard key != "%" else {
+            return ""
+        }
+        guard key.utf8.contains(0x25) else {
+            return key
+        }
+        let utf8 = Array(key.utf8)
+        var bytes: [UInt8] = []
+        var index = 0
+        while index < utf8.count {
+            let escape = utf8[index] == 0x25 && index + 2 < utf8.count ? (utf8[index + 1], utf8[index + 2]) : nil
+            switch escape {
+            case (0x32, 0x35)?: // %25
+                bytes.append(0x25)
+                index += 3
+            case (0x30, 0x30)?: // %00
+                bytes.append(0)
+                index += 3
+            default: // Not an escape this driver writes: keep it as is.
+                bytes.append(utf8[index])
+                index += 1
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -222,6 +305,19 @@ enum JSONValue: Codable, Sendable, Equatable {
             self = .array(value)
         } else {
             self = .object(try container.decode([String: JSONValue].self))
+        }
+    }
+
+    /// Rewrites object keys at every depth.
+    func mappingKeys(_ transform: (String) -> String) -> JSONValue {
+        switch self {
+        case .array(let values):
+            return .array(values.map { $0.mappingKeys(transform) })
+        case .object(let members):
+            return .object(Dictionary(members.map { (transform($0.key), $0.value.mappingKeys(transform)) },
+                                      uniquingKeysWith: { first, _ in first }))
+        default:
+            return self
         }
     }
 
