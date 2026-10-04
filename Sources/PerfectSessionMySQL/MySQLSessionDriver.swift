@@ -51,7 +51,8 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
     public func resume(token: String) async throws -> PerfectSession {
         let db = connect()
         let stmt = MySQLStmt(db)
-        defer { stmt.close(); db.close() }
+        // MySQLStmt keeps only a raw pointer to its connection, so keep `db` alive until the statement is done.
+        defer { withExtendedLifetime((stmt, db)) {} }
         _ = stmt.prepare(statement: "SELECT token,userid,created,updated,idle,data,ipaddress,useragent FROM `\(MySQLSessionConnector.table)` WHERE token = ?")
         stmt.bindParam(token)
         _ = stmt.execute()
@@ -118,7 +119,8 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
     private func exec(_ statement: String, params: [Any]) {
         let db = connect()
         let stmt = MySQLStmt(db)
-        defer { stmt.close(); db.close() }
+        // MySQLStmt keeps only a raw pointer to its connection, so keep `db` alive until the statement is done.
+        defer { withExtendedLifetime((stmt, db)) {} }
         _ = stmt.prepare(statement: statement)
         for p in params { stmt.bindParam("\(p)") }
         _ = stmt.execute()
