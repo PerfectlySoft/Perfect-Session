@@ -3,7 +3,8 @@ import Foundation
 @testable import PerfectSessionRedis
 import PerfectSessionCore
 
-@Suite struct PerfectSessionRedisTests {
+// Serialized: each test sets the connector's global settings.
+@Suite(.serialized) struct PerfectSessionRedisTests {
 
     static let redisEnabled = ProcessInfo.processInfo.environment["REDIS_TESTS"] == "1"
 

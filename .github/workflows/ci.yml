@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    # Every backend against a real server (SQLite uses a local file).
+    name: Linux (Swift 6.4, all backends)
+    runs-on: ubuntu-24.04
+    container: swift:6.4-resolute
+    services:
+      mongo:
+        image: mongo:8
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: perfect_sessions_test
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: perfect_sessions_test
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1" --health-interval 5s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7
+    env:
+      MONGODB_TESTS: "1"
+      MONGODB_URI: mongodb://mongo:27017
+      PG_TESTS: "1"
+      PG_HOST: postgres
+      MYSQL_TESTS: "1"
+      MYSQL_HOST: mysql
+      REDIS_TESTS: "1"
+      REDIS_HOST: redis
+      SQLITE_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install client libraries
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends pkg-config libmongoc-dev libbson-dev libpq-dev libmysqlclient-dev libsqlite3-dev
+
+      - name: Test
+        run: swift test
+
+  macos:
+    # GitHub's macOS runners have no database servers, so this covers the build plus the
+    # server-independent tests, including SQLite (a local file).
+    name: macOS (build, core and SQLite tests)
+    runs-on: macos-26
+    env:
+      SQLITE_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install client libraries
+        run: |
+          brew install mongo-c-driver mysql-client libpq
+          # Keg-only; older SwiftPM releases don't find libpq through its brew provider alone.
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$(brew --prefix mysql-client)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Test
+        run: swift test

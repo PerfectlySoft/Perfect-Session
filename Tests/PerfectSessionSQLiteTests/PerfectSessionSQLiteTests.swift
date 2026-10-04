@@ -3,7 +3,8 @@ import Foundation
 @testable import PerfectSessionSQLite
 import PerfectSessionCore
 
-@Suite struct PerfectSessionSQLiteTests {
+// Serialized: each test sets the connector's global settings.
+@Suite(.serialized) struct PerfectSessionSQLiteTests {
 
     static let sqliteEnabled = ProcessInfo.processInfo.environment["SQLITE_TESTS"] == "1"
 
