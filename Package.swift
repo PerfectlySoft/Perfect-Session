@@ -10,12 +10,14 @@ let package = Package(
         .library(name: "PerfectSessionPostgreSQL",    targets: ["PerfectSessionPostgreSQL"]),
         .library(name: "PerfectSessionRedis",         targets: ["PerfectSessionRedis"]),
         .library(name: "PerfectSessionSQLite",        targets: ["PerfectSessionSQLite"]),
+        .library(name: "PerfectSessionMongoDB",       targets: ["PerfectSessionMongoDB"]),
     ],
     dependencies: [
         .package(url: "https://github.com/PerfectlySoft/Perfect-MySQL.git", branch: "main"),
         .package(url: "https://github.com/PerfectlySoft/Perfect-PostgreSQL.git", branch: "main"),
         .package(url: "https://github.com/PerfectlySoft/Perfect-Redis.git", branch: "main"),
         .package(url: "https://github.com/PerfectlySoft/Perfect-SQLite.git", branch: "main"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-MongoDB.git", from: "4.0.1"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     ],
     targets: [
@@ -57,6 +59,15 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "PerfectSessionMongoDB",
+            dependencies: [
+                "PerfectSessionCore",
+                .product(name: "PerfectMongoDB", package: "Perfect-MongoDB"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "PerfectSessionCoreTests",
             dependencies: ["PerfectSessionCore"],
@@ -80,6 +91,11 @@ let package = Package(
         .testTarget(
             name: "PerfectSessionSQLiteTests",
             dependencies: ["PerfectSessionSQLite"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "PerfectSessionMongoDBTests",
+            dependencies: ["PerfectSessionMongoDB"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
