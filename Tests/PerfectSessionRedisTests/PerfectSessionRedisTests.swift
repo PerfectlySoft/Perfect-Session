@@ -194,6 +194,23 @@ enum RedisLive {
         await driver.destroy(token: session.token)
     }
 
+    /// save() renews the idle time: a session saved within every `idle` seconds stays alive
+    /// past `idle` seconds from creation. Only Redis used to do this.
+    @Test func saveRenewsIdle() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        // Times are whole seconds, so allow a second of rounding either way: 3 + 3 seconds is
+        // past idle + 1 from creation, and 3 is under idle - 1 from each save.
+        session.idle = 5
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        session = try await driver.resume(token: session.token)
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        _ = try await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = getDriver()
         var session = await driver.create()

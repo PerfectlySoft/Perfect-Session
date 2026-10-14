@@ -108,7 +108,11 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         return session
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         let document = SessionDocument(session)
         do {
             let matched = try await withCollection { sessions in

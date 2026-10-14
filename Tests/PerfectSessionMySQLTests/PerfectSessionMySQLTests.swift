@@ -118,8 +118,7 @@ enum MySQLLive {
         session.idle = Int.max
         await driver.save(session)
         var expired = await driver.create()
-        expired.idle = 1
-        expired.updated -= 10
+        expired.idle = -10   // save() renews `updated`, so expire it through idle
         await driver.save(expired)
         await driver.clean()
         #expect(try await driver.resume(token: session.token).idle == Int.max)
@@ -132,8 +131,7 @@ enum MySQLLive {
     @Test func resumeRejectsExpired() async throws {
         let driver = await getDriver()
         var session = await driver.create()
-        session.idle    = 1
-        session.updated = Int(Date().timeIntervalSince1970) - 10
+        session.idle = -10   // save() renews `updated`, so expire it through idle
         await driver.save(session)
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
@@ -144,8 +142,7 @@ enum MySQLLive {
     @Test func clean() async {
         let driver = await getDriver()
         var session = await driver.create()
-        session.idle    = 1
-        session.updated = Int(Date().timeIntervalSince1970) - 10
+        session.idle = -10   // save() renews `updated`, so expire it through idle
         await driver.save(session)
         #expect(isStored(session.token))
         await driver.clean()
@@ -222,6 +219,23 @@ enum MySQLLive {
         await driver.save(session)
         let resumed = try await driver.resume(token: session.token)
         #expect((resumed.data["csrf"] as? String)?.isEmpty == false)
+        await driver.destroy(token: session.token)
+    }
+
+    /// save() renews the idle time: a session saved within every `idle` seconds stays alive
+    /// past `idle` seconds from creation. Only Redis used to do this.
+    @Test func saveRenewsIdle() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        // Times are whole seconds, so allow a second of rounding either way: 3 + 3 seconds is
+        // past idle + 1 from creation, and 3 is under idle - 1 from each save.
+        session.idle = 5
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        session = try await driver.resume(token: session.token)
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        _ = try await driver.resume(token: session.token)
         await driver.destroy(token: session.token)
     }
 

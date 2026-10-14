@@ -155,8 +155,7 @@ let underThreadSanitizer: Bool = {
     @Test func memoryResumeRejectsExpired() async {
         let driver = MemorySessionDriver()
         var session = await driver.create()
-        session.idle    = 1
-        session.updated = Int(Date().timeIntervalSince1970) - 10
+        session.idle = -10   // save() renews `updated`, so expire it through idle
         await driver.save(session)
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
@@ -365,12 +364,28 @@ let underThreadSanitizer: Bool = {
         await driver.destroy(token: session.token)
     }
 
+    /// save() renews the idle time: a session saved within every `idle` seconds stays alive
+    /// past `idle` seconds from creation. Only Redis used to do this.
+    @Test func saveRenewsIdle() async throws {
+        let driver = MemorySessionDriver()
+        var session = await driver.create()
+        // Times are whole seconds, so allow a second of rounding either way: 3 + 3 seconds is
+        // past idle + 1 from creation, and 3 is under idle - 1 from each save.
+        session.idle = 5
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        session = try await driver.resume(token: session.token)
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        _ = try await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func memoryClean() async throws {
         let driver = MemorySessionDriver()
         var session = await driver.create()
         // expire: set updated far in the past so clean() will purge it
-        session.idle    = 1
-        session.updated = 0  // epoch — definitely expired
+        session.idle    = -10   // save() renews `updated`, so expire it through idle
         await driver.save(session)
         await driver.clean()
         await #expect(throws: InvalidSessionError.self) {

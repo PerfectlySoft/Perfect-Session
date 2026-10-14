@@ -76,7 +76,11 @@ public final class MySQLSessionDriver: SessionDriver, Sendable {
         return s
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         exec(
             "UPDATE `\(MySQLSessionConnector.table)` SET userid=?,updated=?,idle=?,data=? WHERE token=?",
             params: [session.userid, session.updated, session.idle, session.tojson(), session.token]

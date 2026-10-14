@@ -28,9 +28,11 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
         return session
     }
 
-    /// Updates a stored session. A session that isn't stored (destroyed, cleaned, or never
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't stored (destroyed, cleaned, or never
     /// created by this driver) isn't stored again, so a save racing a logout can't bring it back.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         lock.withLock {
             if sessions[session.token] != nil { sessions[session.token] = session }
         }
