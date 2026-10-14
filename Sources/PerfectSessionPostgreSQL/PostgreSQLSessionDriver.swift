@@ -28,9 +28,9 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS "\(PostgreSQLSessionConnector.table)" (
                 "token"     varchar NOT NULL,
                 "userid"    varchar,
-                "created"   int4 NOT NULL DEFAULT 0,
-                "updated"   int4 NOT NULL DEFAULT 0,
-                "idle"      int4 NOT NULL DEFAULT 0,
+                "created"   int8 NOT NULL DEFAULT 0,
+                "updated"   int8 NOT NULL DEFAULT 0,
+                "idle"      int8 NOT NULL DEFAULT 0,
                 "data"      text,
                 "ipaddress" varchar,
                 "useragent" text,
@@ -90,7 +90,8 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
 
     public func clean() async {
         exec(
-            "DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE updated + idle < $1",
+            // numeric arithmetic: an integer sum overflows (an error) for an idle near the type's max.
+            "DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE updated::numeric + idle < $1",
             params: [Int(Date().timeIntervalSince1970)]
         )
     }

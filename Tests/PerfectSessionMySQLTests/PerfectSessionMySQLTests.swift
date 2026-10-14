@@ -14,6 +14,16 @@ enum MySQLLive {
 // Serialized: each test sets the connector's global settings.
 @Suite(.serialized, .enabled(if: MySQLLive.mysqlEnabled, "set MYSQL_TESTS=1 and MYSQL_PORT to run against a server")) struct PerfectSessionMySQLTests {
 
+    /// Drops the test table once per run, so setup() creates it with the current schema.
+    static let freshTable: Void = {
+        let db = MySQL()
+        if db.connect(host: MySQLSessionConnector.host, user: MySQLSessionConnector.username,
+                      password: MySQLSessionConnector.password, db: MySQLSessionConnector.database,
+                      port: UInt32(MySQLSessionConnector.port)) {
+            _ = db.query(statement: "DROP TABLE IF EXISTS `test_sessions`")
+        }
+    }()
+
     func getDriver() async -> MySQLSessionDriver {
         MySQLSessionConnector.host     = ProcessInfo.processInfo.environment["MYSQL_HOST"]     ?? "localhost"
         MySQLSessionConnector.username = ProcessInfo.processInfo.environment["MYSQL_USER"]     ?? "root"
@@ -21,6 +31,7 @@ enum MySQLLive {
         MySQLSessionConnector.database = ProcessInfo.processInfo.environment["MYSQL_DATABASE"] ?? "perfect_sessions_test"
         MySQLSessionConnector.port     = MySQLLive.port ?? 0
         MySQLSessionConnector.table    = "test_sessions"
+        Self.freshTable
         let driver = MySQLSessionDriver()
         await driver.setup()
         return driver
@@ -75,6 +86,35 @@ enum MySQLLive {
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
         }
+    }
+
+    /// The columns were 32-bit: an idle time past Int32.max failed to store, and timestamps
+    /// stop at 2038.
+    @Test func timesPast32BitsRoundTrip() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = 3_000_000_000
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.idle == 3_000_000_000)
+        #expect(resumed.created == session.created)
+        #expect(resumed.updated == session.updated)
+        await driver.clean()
+        _ = try await driver.resume(token: session.token)
+
+        // clean() still deletes expired sessions when another's updated + idle overflows BIGINT.
+        session.idle = Int.max
+        await driver.save(session)
+        var expired = await driver.create()
+        expired.idle = 1
+        expired.updated -= 10
+        await driver.save(expired)
+        await driver.clean()
+        #expect(try await driver.resume(token: session.token).idle == Int.max)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: expired.token)
+        }
+        await driver.destroy(token: session.token)
     }
 
     @Test func clean() async {

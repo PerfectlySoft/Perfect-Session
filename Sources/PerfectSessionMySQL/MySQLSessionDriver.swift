@@ -21,9 +21,9 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS `\(MySQLSessionConnector.table)` (
                 `token`     varchar(255) NOT NULL,
                 `userid`    varchar(255),
-                `created`   int NOT NULL DEFAULT 0,
-                `updated`   int NOT NULL DEFAULT 0,
-                `idle`      int NOT NULL DEFAULT 0,
+                `created`   bigint NOT NULL DEFAULT 0,
+                `updated`   bigint NOT NULL DEFAULT 0,
+                `idle`      bigint NOT NULL DEFAULT 0,
                 `data`      text,
                 `ipaddress` varchar(255),
                 `useragent` text,
@@ -62,9 +62,9 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
             var s = PerfectSession()
             s.token     = row[0] as? String ?? ""
             s.userid    = row[1] as? String ?? ""
-            s.created   = Int(row[2] as? Int32 ?? 0)
-            s.updated   = Int(row[3] as? Int32 ?? 0)
-            s.idle      = Int(row[4] as? Int32 ?? 0)
+            s.created   = Self.int(row[2])
+            s.updated   = Self.int(row[3])
+            s.idle      = Self.int(row[4])
             if let d = row[5] as? String { s.fromjson(d) }
             s.ipaddress = row[6] as? String ?? ""
             s.useragent = row[7] as? String ?? ""
@@ -88,12 +88,27 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
 
     public func clean() async {
         exec(
-            "DELETE FROM `\(MySQLSessionConnector.table)` WHERE updated + idle < ?",
+            // DECIMAL arithmetic: a BIGINT sum overflows (an error) for an idle near Int.max.
+            "DELETE FROM `\(MySQLSessionConnector.table)` WHERE CAST(updated AS DECIMAL(30,0)) + idle < ?",
             params: [Int(Date().timeIntervalSince1970)]
         )
     }
 
     // MARK: - Private helpers
+
+    /// An integer column: Int64 from the BIGINT columns `setup()` creates, Int32 from the INT
+    /// columns of tables created before 4.0.
+    private static func int(_ value: Any?) -> Int {
+        switch value {
+        case let v as Int64:  return Int(v)
+        case let v as Int32:  return Int(v)
+        case let v as Int:    return v
+        case let v as UInt64: return Int(exactly: v) ?? Int.max
+        case let v as UInt32: return Int(v)
+        case let v as String: return Int(v) ?? 0
+        default:              return 0
+        }
+    }
 
     private func connect() -> MySQL {
         let db = MySQL()

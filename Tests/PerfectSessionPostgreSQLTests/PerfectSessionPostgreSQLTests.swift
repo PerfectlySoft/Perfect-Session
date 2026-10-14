@@ -12,6 +12,15 @@ enum PostgreSQLLive {
 // Serialized: each test sets the connector's global settings.
 @Suite(.serialized, .enabled(if: PostgreSQLLive.pgEnabled, "set PG_TESTS=1 to run against a server")) struct PerfectSessionPostgreSQLTests {
 
+    /// Drops the test table once per run, so setup() creates it with the current schema.
+    static let freshTable: Void = {
+        let db = PGConnection()
+        defer { db.close() }
+        if db.connectdb(PostgreSQLSessionConnector.connectionString()) == .ok {
+            db.exec(statement: #"DROP TABLE IF EXISTS "test_sessions""#).clear()
+        }
+    }()
+
     func getDriver() async -> PostgreSQLSessionDriver {
         PostgreSQLSessionConnector.host     = ProcessInfo.processInfo.environment["PG_HOST"]     ?? "localhost"
         PostgreSQLSessionConnector.username = ProcessInfo.processInfo.environment["PG_USER"]     ?? "postgres"
@@ -19,6 +28,7 @@ enum PostgreSQLLive {
         PostgreSQLSessionConnector.database = ProcessInfo.processInfo.environment["PG_DATABASE"] ?? "perfect_sessions_test"
         PostgreSQLSessionConnector.port     = Int(ProcessInfo.processInfo.environment["PG_PORT"] ?? "") ?? 5432
         PostgreSQLSessionConnector.table    = "test_sessions"
+        Self.freshTable
         let driver = PostgreSQLSessionDriver()
         await driver.setup()
         return driver
@@ -72,6 +82,34 @@ enum PostgreSQLLive {
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
         }
+    }
+
+    /// The columns were 32-bit: an idle time past Int32.max failed to store, timestamps stop at
+    /// 2038, and clean() failed outright (integer out of range) once any row's updated + idle
+    /// passed Int32.max.
+    @Test func timesPast32BitsRoundTrip() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = 3_000_000_000
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.idle == 3_000_000_000)
+        #expect(resumed.created == session.created)
+        await driver.clean()
+        _ = try await driver.resume(token: session.token)
+
+        session.idle = Int.max
+        await driver.save(session)
+        var expired = await driver.create()
+        expired.idle = 1
+        expired.updated -= 10
+        await driver.save(expired)
+        await driver.clean()
+        #expect(try await driver.resume(token: session.token).idle == Int.max)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: expired.token)
+        }
+        await driver.destroy(token: session.token)
     }
 
     @Test func clean() async {

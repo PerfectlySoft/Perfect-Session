@@ -72,6 +72,16 @@ enum SQLiteLive {
         }
     }
 
+    @Test func timesPast32BitsRoundTrip() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = Int.max
+        await driver.save(session)
+        await driver.clean()
+        #expect(try await driver.resume(token: session.token).idle == Int.max)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func clean() async {
         let driver = await getDriver()
         var session = await driver.create()
