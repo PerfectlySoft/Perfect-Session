@@ -98,9 +98,12 @@ public final class RedisSessionDriver: SessionDriver, @unchecked Sendable {
             "idle":      session.idle,
             "ipaddress": session.ipaddress,
             "useragent": session.useragent,
-            "data":      session.data,
+            "data":      JSONSerialization.isValidJSONObject(session.data) ? session.data : [:],
         ]
-        guard let d = try? JSONSerialization.data(withJSONObject: dict),
+        // JSONSerialization raises an uncatchable exception for a value JSON can't hold. Like
+        // tojson(), save such data as empty rather than terminate the process.
+        guard JSONSerialization.isValidJSONObject(dict),
+              let d = try? JSONSerialization.data(withJSONObject: dict),
               let s = String(data: d, encoding: .utf8) else { return nil }
         return s
     }

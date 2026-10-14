@@ -7,6 +7,10 @@ public struct PerfectSession: @unchecked Sendable {
     public var created    = 0
     public var updated    = 0
     public var idle       = SessionConfig.idle
+    /// The session's values. Store only JSON values: `String`, `Bool`, finite numbers, `NSNull`,
+    /// and arrays and `[String: …]` dictionaries of them. If anything else is in here (a `Date`,
+    /// a `URL`, NaN, a dictionary with non-string keys), `tojson()` returns `"{}"`, so the
+    /// drivers save the session with empty data.
     public var data       = [String: Any]()
     public var ipaddress  = ""
     public var useragent  = ""
@@ -19,8 +23,12 @@ public struct PerfectSession: @unchecked Sendable {
         updated = now
     }
 
+    /// `data` as JSON text, or `"{}"` if it holds a value JSON can't represent.
     public func tojson() -> String {
-        guard let d = try? JSONSerialization.data(withJSONObject: data),
+        // JSONSerialization raises an Objective-C exception for such values, which `try?` can't
+        // catch and which terminates the process, so check first.
+        guard JSONSerialization.isValidJSONObject(data),
+              let d = try? JSONSerialization.data(withJSONObject: data),
               let s = String(data: d, encoding: .utf8) else { return "{}" }
         return s
     }

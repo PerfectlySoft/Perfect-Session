@@ -32,6 +32,23 @@ import Foundation
         #expect(s.tojson() == "{}")
     }
 
+    /// JSONSerialization raises an Objective-C exception (on Darwin), which Swift can't catch,
+    /// for values JSON can't hold; tojson() used to crash the process on them.
+    @Test(arguments: ["nan", "infinity", "date", "url", "intKey", "nestedDate"])
+    func sessionToJsonNonJSONValueDoesNotCrash(_ kind: String) {
+        var s = PerfectSession()
+        s.data["ok"] = "kept out"
+        switch kind {
+        case "nan":      s.data["x"] = Double.nan
+        case "infinity": s.data["x"] = Double.infinity
+        case "date":     s.data["x"] = Date()
+        case "url":      s.data["x"] = URL(string: "https://example.com")!
+        case "intKey":   s.data["x"] = [1: "one"]
+        default:         s.data["x"] = ["when": [Date()]]
+        }
+        #expect(s.tojson() == "{}")
+    }
+
     @Test func sessionFromJsonBadInput() {
         var s = PerfectSession()
         s.data["key"] = "before"

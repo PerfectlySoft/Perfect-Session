@@ -49,6 +49,18 @@ enum RedisLive {
         await driver.destroy(token: session.token)
     }
 
+    @Test func saveWithNonJSONValueDoesNotCrash() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.userid = "redis-user-2"
+        session.data["when"] = Date()
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.userid == "redis-user-2")
+        #expect(resumed.data.isEmpty)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func destroy() async {
         let driver = getDriver()
         let session = await driver.create()
