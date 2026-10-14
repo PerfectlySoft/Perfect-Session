@@ -389,3 +389,66 @@ import Darwin
         #expect(CookieSameSite.none.rawValue   == "None")
     }
 }
+
+/// Serialized because each test changes SessionConfig's cookie settings, which no other test reads.
+@Suite(.serialized) struct SessionCookieTests {
+    func withCookieConfig(name: String = "PerfectSession", domain: String = "", path: String = "/",
+                          secure: Bool = false, httpOnly: Bool = true, sameSite: CookieSameSite = .strict,
+                          _ body: () -> Void) {
+        let saved = (SessionConfig.name, SessionConfig.cookieDomain, SessionConfig.cookiePath,
+                     SessionConfig.cookieSecure, SessionConfig.cookieHTTPOnly, SessionConfig.cookieSameSite)
+        defer {
+            (SessionConfig.name, SessionConfig.cookieDomain, SessionConfig.cookiePath,
+             SessionConfig.cookieSecure, SessionConfig.cookieHTTPOnly, SessionConfig.cookieSameSite) = saved
+        }
+        (SessionConfig.name, SessionConfig.cookieDomain, SessionConfig.cookiePath,
+         SessionConfig.cookieSecure, SessionConfig.cookieHTTPOnly, SessionConfig.cookieSameSite) =
+            (name, domain, path, secure, httpOnly, sameSite)
+        body()
+    }
+
+    @Test func defaults() {
+        withCookieConfig {
+            #expect(SessionCookie.setCookie(token: "abc123") == "PerfectSession=abc123; Path=/; HttpOnly; SameSite=Strict")
+            #expect(SessionCookie.expiredCookie() == "PerfectSession=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")
+        }
+    }
+
+    @Test func allAttributes() {
+        withCookieConfig(domain: "example.com", path: "/app", secure: true, httpOnly: false, sameSite: .lax) {
+            #expect(SessionCookie.setCookie(token: "t") == "PerfectSession=t; Path=/app; Domain=example.com; Secure; SameSite=Lax")
+        }
+    }
+
+    @Test func sameSiteNoneAndPrefixesForceSecure() {
+        withCookieConfig(sameSite: .none) {
+            #expect(SessionCookie.setCookie(token: "t") == "PerfectSession=t; Path=/; HttpOnly; Secure; SameSite=None")
+        }
+        withCookieConfig(name: "__Host-sid") {
+            #expect(SessionCookie.setCookie(token: "t") == "__Host-sid=t; Path=/; HttpOnly; Secure; SameSite=Strict")
+        }
+        withCookieConfig(name: "__Host-sid", domain: "example.com") {
+            #expect(SessionCookie.setCookie(token: "t") == nil)
+        }
+        withCookieConfig(name: "__Host-sid", path: "/app") {
+            #expect(SessionCookie.setCookie(token: "t") == nil)
+        }
+    }
+
+    /// Settings or a token containing ";" or CR/LF would otherwise add attributes or headers.
+    @Test func refusesValuesThatWouldInjectAttributes() {
+        withCookieConfig {
+            for token in ["a;Domain=evil.com", "a\r\nSet-Cookie: x=1", "a b", "a,b", "\"a\"", "é"] {
+                #expect(SessionCookie.setCookie(token: token) == nil, "\(token.debugDescription)")
+            }
+        }
+        withCookieConfig(name: "sid;Secure") { #expect(SessionCookie.setCookie(token: "t") == nil) }
+        withCookieConfig(name: "") { #expect(SessionCookie.setCookie(token: "t") == nil) }
+        withCookieConfig(domain: "example.com; SameSite=None") { #expect(SessionCookie.setCookie(token: "t") == nil) }
+        withCookieConfig(path: "/;HttpOnly") { #expect(SessionCookie.setCookie(token: "t") == nil) }
+        withCookieConfig(path: "/a\nb") { #expect(SessionCookie.setCookie(token: "t") == nil) }
+        withCookieConfig {
+            #expect(SessionCookie.setCookie(token: PerfectSession.newToken()) != nil)
+        }
+    }
+}
