@@ -98,8 +98,8 @@ public final class PostgreSQLSessionDriver: SessionDriver, Sendable {
         var session = session
         session.touch()
         exec(
-            "UPDATE \"\(PostgreSQLSessionConnector.table)\" SET userid=$1,updated=$2,idle=$3,data=$4 WHERE token=$5",
-            params: [session.userid, session.updated, session.idle, session.tojson(), session.token]
+            "UPDATE \"\(PostgreSQLSessionConnector.table)\" SET userid=$1,created=$2,updated=$3,idle=$4,data=$5 WHERE token=$6",
+            params: [session.userid, session.created, session.updated, session.idle, session.tojson(), session.token]
         )
     }
 

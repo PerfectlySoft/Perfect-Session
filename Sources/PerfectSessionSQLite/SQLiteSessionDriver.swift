@@ -100,7 +100,7 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
             let db = try SQLite(SQLiteSessionConnector.databasePath)
             defer { db.close() }
             try db.execute(
-                statement: "UPDATE \"\(SQLiteSessionConnector.table)\" SET userid=?,updated=?,idle=?,data=?,ipaddress=?,useragent=? WHERE token=?",
+                statement: "UPDATE \"\(SQLiteSessionConnector.table)\" SET userid=?,updated=?,idle=?,data=?,ipaddress=?,useragent=?,created=? WHERE token=?",
                 doBindings: { stmt in
                     try stmt.bind(position: 1, session.userid)
                     try stmt.bind(position: 2, session.updated)
@@ -108,7 +108,8 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
                     try stmt.bind(position: 4, session.tojson())
                     try stmt.bind(position: 5, session.ipaddress)
                     try stmt.bind(position: 6, session.useragent)
-                    try stmt.bind(position: 7, session.token)
+                    try stmt.bind(position: 7, session.created)
+                    try stmt.bind(position: 8, session.token)
                 }
             )
         } catch {

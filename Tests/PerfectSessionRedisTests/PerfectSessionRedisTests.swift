@@ -211,6 +211,18 @@ enum RedisLive {
         await driver.destroy(token: session.token)
     }
 
+    /// regenerate() used to restart the absolute timeout: the new session got a new `created`.
+    @Test func regenerateKeepsCreated() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.created -= 1000
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.created == session.created)
+        #expect(try await driver.resume(token: fresh.token).created == session.created)
+        await driver.destroy(token: fresh.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = getDriver()
         var session = await driver.create()

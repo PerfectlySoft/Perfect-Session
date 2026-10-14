@@ -82,8 +82,8 @@ public final class MySQLSessionDriver: SessionDriver, Sendable {
         var session = session
         session.touch()
         exec(
-            "UPDATE `\(MySQLSessionConnector.table)` SET userid=?,updated=?,idle=?,data=? WHERE token=?",
-            params: [session.userid, session.updated, session.idle, session.tojson(), session.token]
+            "UPDATE `\(MySQLSessionConnector.table)` SET userid=?,created=?,updated=?,idle=?,data=? WHERE token=?",
+            params: [session.userid, session.created, session.updated, session.idle, session.tojson(), session.token]
         )
     }
 
