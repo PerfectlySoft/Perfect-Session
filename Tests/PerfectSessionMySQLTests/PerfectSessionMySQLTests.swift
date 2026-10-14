@@ -110,7 +110,7 @@ enum MySQLLive {
         let resumed = try await driver.resume(token: session.token)
         #expect(resumed.idle == 3_000_000_000)
         #expect(resumed.created == session.created)
-        #expect(resumed.updated == session.updated)
+        #expect(resumed.updated >= session.updated)   // save() renews it
         await driver.clean()
         _ = try await driver.resume(token: session.token)
 

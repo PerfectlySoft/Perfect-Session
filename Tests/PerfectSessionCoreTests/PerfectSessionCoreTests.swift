@@ -210,7 +210,7 @@ let underThreadSanitizer: Bool = {
     /// On Linux, Foundation's UUID() reads /dev/urandom and ignores a failed open(), so with no
     /// file descriptor left every UUID was 00000000-0000-4000-8000-000000000000: every new
     /// session got the same token. Runs in a child process, which it starves of descriptors.
-    /// (Skipped under ThreadSanitizer, whose runtime aborts a process with no descriptors left.)
+    /// (Skipped under ThreadSanitizer: exit tests abort under it, even one that only calls exit(0).)
     @Test(.disabled(if: underThreadSanitizer, "ThreadSanitizer needs file descriptors"))
     func tokensStayRandomWithoutFileDescriptors() async {
         await #expect(processExitsWith: .success) {

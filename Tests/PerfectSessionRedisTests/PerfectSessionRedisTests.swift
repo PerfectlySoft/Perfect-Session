@@ -352,7 +352,8 @@ struct CapturingLogHandler: LogHandler {
 
 /// Failures used to log the full session token as `eventid`; a token in a log is a session
 /// anyone with log access can take over. Runs in a child process so it can bootstrap logging.
-@Test func redisLogsDoNotContainTokens() async {
+@Test(.disabled(if: underThreadSanitizer, "exit tests abort under ThreadSanitizer"))
+func redisLogsDoNotContainTokens() async {
     await #expect(processExitsWith: .success) {
         LoggingSystem.bootstrap { _ in CapturingLogHandler() }
         RedisSessionConnector.host = "127.0.0.1"
@@ -409,3 +410,14 @@ final class SilentListener: @unchecked Sendable {
         #endif
     }
 }
+
+/// Whether the ThreadSanitizer runtime is loaded. Exit tests abort under it (even one that only
+/// calls exit(0)), so they're skipped there.
+let underThreadSanitizer: Bool = {
+    #if os(Linux)
+    let defaultHandle: UnsafeMutableRawPointer? = nil          // RTLD_DEFAULT
+    #else
+    let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+    #endif
+    return dlsym(defaultHandle, "__tsan_init") != nil
+}()
