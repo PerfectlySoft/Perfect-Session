@@ -66,6 +66,17 @@ enum MySQLLive {
         }
     }
 
+    @Test func saveAfterDestroyDoesNotResurrect() async {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.userid = "logged-out"
+        await driver.destroy(token: session.token)
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+    }
+
     @Test func clean() async {
         let driver = await getDriver()
         var session = await driver.create()

@@ -26,8 +26,12 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
         return session
     }
 
+    /// Updates a stored session. A session that isn't stored (destroyed, cleaned, or never
+    /// created by this driver) isn't stored again, so a save racing a logout can't bring it back.
     public func save(_ session: PerfectSession) async {
-        lock.withLock { sessions[session.token] = session }
+        lock.withLock {
+            if sessions[session.token] != nil { sessions[session.token] = session }
+        }
     }
 
     public func destroy(token: String) async {

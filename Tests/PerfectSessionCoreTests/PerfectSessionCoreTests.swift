@@ -160,6 +160,26 @@ import Foundation
         }
     }
 
+    /// save() used to insert, so a save racing a logout brought the session back, and saving a
+    /// session built around a client-chosen token stored it (session fixation).
+    @Test func memorySaveOnlyUpdatesStoredSessions() async {
+        let driver = MemorySessionDriver()
+        var session = await driver.create()
+        session.userid = "logged-out"
+        await driver.destroy(token: session.token)
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+
+        var planted = PerfectSession()
+        planted.token = "attacker-chosen"
+        await driver.save(planted)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: "attacker-chosen")
+        }
+    }
+
     @Test func memoryClean() async throws {
         let driver = MemorySessionDriver()
         var session = await driver.create()
