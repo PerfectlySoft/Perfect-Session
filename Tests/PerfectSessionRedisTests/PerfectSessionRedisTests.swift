@@ -89,6 +89,21 @@ enum RedisLive {
         }
     }
 
+    /// An idle time near Int.max made SET's PX argument unrepresentable, so save() failed and
+    /// the session's new data was lost.
+    @Test(arguments: [Int.max, Int.max / 1000, 1 << 50])
+    func hugeIdleStillSaves(_ idle: Int) async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.idle = idle
+        session.data["saved"] = true
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.data["saved"] as? Bool == true)
+        #expect(resumed.idle == idle)
+        await driver.destroy(token: session.token)
+    }
+
     /// An idle time of 0 or less used to store the session with no TTL at all.
     @Test func nonPositiveIdleDoesNotMakeASessionImmortal() async throws {
         let driver = getDriver()

@@ -39,7 +39,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
         do {
             _ = try await withClient { client in
                 try await client.set(key: self.key(session.token), value: .string(json),
-                                     expires: Double(session.idle), ifNotExists: true)
+                                     expires: Self.ttl(session.idle), ifNotExists: true)
             }
         } catch {
             logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
@@ -79,7 +79,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
             let token = s.token, idle = s.idle
             let reply = try await withClient { client in
                 try await client.set(key: self.key(token), value: .string(json),
-                                     expires: Double(idle), ifExists: true)
+                                     expires: Self.ttl(idle), ifExists: true)
             }
             if reply.isNil {
                 logger.debug("session save matched no session (destroyed or expired); not recreated",
@@ -99,6 +99,15 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
     }
 
     // MARK: - Private helpers
+
+    /// The longest TTL set, in seconds (about 31,700 years). PX takes milliseconds, which for an
+    /// idle near Int.max neither Perfect-Redis (Int milliseconds) nor Redis (now + PX must fit
+    /// in 64 bits) accepts; the session's own `idle` is still stored as is.
+    static let maximumTTL = 1_000_000_000_000
+
+    static func ttl(_ idle: Int) -> Double {
+        Double(min(idle, maximumTTL))
+    }
 
     private func key(_ token: String) -> String {
         RedisSessionConnector.keyPrefix + token
