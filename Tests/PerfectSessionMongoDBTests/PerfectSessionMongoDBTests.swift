@@ -284,6 +284,35 @@ enum MongoDBLive {
         await driver.destroy(token: fresh.token)
     }
 
+    /// Keys MongoDB treats specially in queries and updates are stored as data, at any depth.
+    @Test func operatorAndDottedKeysRoundTrip() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        let keys = ["$where", "$set", "$", "a.b", ".", "$x.y", "_id", "expiresAt"]
+        for key in keys { session.data[key] = key }
+        session.data["nested"] = ["$gt": 1, "c.d": ["$ne": "x"]]
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        for key in keys { #expect(resumed.data[key] as? String == key, "\(key)") }
+        let nested = resumed.data["nested"] as? [String: Any]
+        #expect(nested?["$gt"] as? Int == 1)
+        #expect((nested?["c.d"] as? [String: Any])?["$ne"] as? String == "x")
+        await driver.destroy(token: session.token)
+    }
+
+    /// The token is matched as a string, so one that looks like an operator matches nothing.
+    @Test(arguments: [#"{"$ne": ""}"#, "$ne", #"{"$gt": ""}"#, ".*", "\u{0}"])
+    func operatorLikeTokensMatchNothing(_ token: String) async throws {
+        let driver = try getDriver()
+        let other = await driver.create()
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: token)
+        }
+        await driver.destroy(token: token)
+        _ = try await driver.resume(token: other.token)
+        await driver.destroy(token: other.token)
+    }
+
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
     @Test func serverIsReachable() async throws {
         let driver = try getDriver()

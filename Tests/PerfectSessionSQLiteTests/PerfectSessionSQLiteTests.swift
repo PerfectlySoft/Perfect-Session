@@ -120,6 +120,26 @@ enum SQLiteLive {
         #expect(!(try isStored(session.token)))
     }
 
+    /// Tokens and data are bound as parameters, so SQL in them is just text. (NUL isn't covered:
+    /// PostgreSQL text can't hold it and SQLite text binding stops at it; see the README.)
+    @Test(arguments: ["' OR '1'='1", "x' OR 1=1 -- ", "x`; DROP TABLE `test_sessions`; --",
+                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\"])
+    func sqlInTokensIsJustText(_ token: String) async throws {
+        let driver = await getDriver()
+        var other = await driver.create()
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: token)
+        }
+        await driver.destroy(token: token)
+        other.userid = token
+        other.data[token] = token
+        await driver.save(other)
+        let resumed = try await driver.resume(token: other.token)
+        #expect(resumed.userid == token, "\(token.debugDescription) became \(resumed.userid.debugDescription)")
+        #expect(resumed.data[token] as? String == token, "\(token.debugDescription)")
+        await driver.destroy(token: other.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = await getDriver()
         var session = await driver.create()
