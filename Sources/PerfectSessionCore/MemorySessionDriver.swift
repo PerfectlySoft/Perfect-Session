@@ -24,6 +24,7 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
         let found = lock.withLock { sessions[token] }
         guard var session = found, !session.isExpired() else { throw InvalidSessionError() }
         session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
         return session
     }
 

@@ -49,18 +49,6 @@ enum RedisLive {
         await driver.destroy(token: session.token)
     }
 
-    @Test func saveWithNonJSONValueDoesNotCrash() async throws {
-        let driver = getDriver()
-        var session = await driver.create()
-        session.userid = "redis-user-2"
-        session.data["when"] = Date()
-        await driver.save(session)
-        let resumed = try await driver.resume(token: session.token)
-        #expect(resumed.userid == "redis-user-2")
-        #expect(resumed.data.isEmpty)
-        await driver.destroy(token: session.token)
-    }
-
     @Test func destroy() async {
         let driver = getDriver()
         let session = await driver.create()
@@ -175,6 +163,34 @@ enum RedisLive {
         let n = try #require(final.data["n"] as? Int)
         #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
         #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// One value JSON can't hold used to make the drivers save empty data, CSRF token included,
+    /// while the user stayed signed in.
+    @Test func nonJSONValueDropsOnlyThatKey() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.userid = "signed-in"
+        session.data["kept"] = "yes"
+        session.data["when"] = Date()
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.userid == "signed-in")
+        #expect(resumed.data["kept"] as? String == "yes")
+        #expect(resumed.data["when"] == nil)
+        #expect(resumed.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// A stored session without a CSRF token gets one when it's resumed.
+    @Test func resumeRestoresMissingCSRF() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.data.removeValue(forKey: "csrf")
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect((resumed.data["csrf"] as? String)?.isEmpty == false)
         await driver.destroy(token: session.token)
     }
 

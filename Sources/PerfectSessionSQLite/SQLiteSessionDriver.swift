@@ -87,6 +87,7 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
         )
         guard var s = found, !s.isExpired() else { throw InvalidSessionError() }
         s._state = "resume"
+        s.setCSRF()   // a stored session without a CSRF token gets one
         return s
     }
 

@@ -104,6 +104,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
             throw InvalidSessionError()
         }
         session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
         return session
     }
 

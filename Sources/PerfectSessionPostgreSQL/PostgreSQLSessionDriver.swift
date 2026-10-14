@@ -88,6 +88,7 @@ public final class PostgreSQLSessionDriver: SessionDriver, Sendable {
         s.useragent = result.getFieldString(tupleIndex: 0, fieldIndex: 7) ?? ""
         guard !s.isExpired() else { throw InvalidSessionError() }
         s._state    = "resume"
+        s.setCSRF()   // a stored session without a CSRF token gets one
         return s
     }
 

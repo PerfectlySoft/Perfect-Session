@@ -1,4 +1,7 @@
 import Foundation
+import Logging
+
+private let logger = Logger(label: "perfect.session")
 
 /// A session: its token, user, timestamps and data.
 ///
@@ -12,9 +15,9 @@ public struct PerfectSession: @unchecked Sendable {
     public var updated    = 0
     public var idle       = SessionConfig.idle
     /// The session's values. Store only JSON values: `String`, `Bool`, finite numbers, `NSNull`,
-    /// and arrays and `[String: …]` dictionaries of them. If anything else is in here (a `Date`,
-    /// a `URL`, NaN, a dictionary with non-string keys), `tojson()` returns `"{}"`, so the
-    /// drivers save the session with empty data.
+    /// and arrays and `[String: …]` dictionaries of them. A top-level key whose value holds
+    /// anything else (a `Date`, a `URL`, NaN, a dictionary with non-string keys) isn't saved; its
+    /// name is logged. See `jsonSafeData()`.
     public var data       = [String: Any]()
     public var ipaddress  = ""
     public var useragent  = ""
@@ -27,12 +30,34 @@ public struct PerfectSession: @unchecked Sendable {
         updated = now
     }
 
-    /// `data` as JSON text, or `"{}"` if it holds a value JSON can't represent.
-    public func tojson() -> String {
+    /// `data` without the top-level keys whose values JSON can't hold, which are logged by name
+    /// (never by value). The CSRF token is never dropped: if it isn't a JSON value, a new one
+    /// replaces it.
+    public func jsonSafeData() -> [String: Any] {
         // JSONSerialization raises an Objective-C exception for such values, which `try?` can't
-        // catch and which terminates the process, so check first.
-        guard JSONSerialization.isValidJSONObject(data),
-              let d = try? JSONSerialization.data(withJSONObject: data),
+        // catch and which terminates the process, so check each one first.
+        guard !JSONSerialization.isValidJSONObject(data) else { return data }
+        var safe = [String: Any]()
+        var dropped = [String]()
+        for (key, value) in data {
+            if JSONSerialization.isValidJSONObject([key: value]) {
+                safe[key] = value
+            } else if key == "csrf" {
+                safe[key] = PerfectSession.newToken()
+            } else {
+                dropped.append(key)
+            }
+        }
+        if !dropped.isEmpty {
+            logger.warning("session data not saved: values JSON can't hold",
+                           metadata: ["keys": .array(dropped.sorted().map { .string($0) })])
+        }
+        return safe
+    }
+
+    /// `jsonSafeData()` as JSON text.
+    public func tojson() -> String {
+        guard let d = try? JSONSerialization.data(withJSONObject: jsonSafeData()),
               let s = String(data: d, encoding: .utf8) else { return "{}" }
         return s
     }

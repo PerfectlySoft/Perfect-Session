@@ -52,7 +52,8 @@ let underThreadSanitizer: Bool = {
     @Test(arguments: ["nan", "infinity", "date", "url", "intKey", "nestedDate"])
     func sessionToJsonNonJSONValueDoesNotCrash(_ kind: String) {
         var s = PerfectSession()
-        s.data["ok"] = "kept out"
+        s.data["ok"] = "kept"
+        s.data["csrf"] = "csrf-token"
         switch kind {
         case "nan":      s.data["x"] = Double.nan
         case "infinity": s.data["x"] = Double.infinity
@@ -61,7 +62,21 @@ let underThreadSanitizer: Bool = {
         case "intKey":   s.data["x"] = [1: "one"]
         default:         s.data["x"] = ["when": [Date()]]
         }
-        #expect(s.tojson() == "{}")
+        // Only the bad key goes; the rest of the data and the CSRF token stay.
+        var restored = PerfectSession()
+        restored.fromjson(s.tojson())
+        #expect(restored.data["ok"] as? String == "kept")
+        #expect(restored.data["csrf"] as? String == "csrf-token")
+        #expect(restored.data["x"] == nil)
+    }
+
+    /// A CSRF token JSON can't hold is replaced, never dropped.
+    @Test func sessionToJsonReplacesBadCSRF() {
+        var s = PerfectSession()
+        s.data["csrf"] = Date()
+        var restored = PerfectSession()
+        restored.fromjson(s.tojson())
+        #expect((restored.data["csrf"] as? String)?.count == 64)
     }
 
     @Test func sessionFromJsonBadInput() {
@@ -319,6 +334,34 @@ let underThreadSanitizer: Bool = {
         let n = try #require(final.data["n"] as? Int)
         #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
         #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// One value JSON can't hold used to make the drivers save empty data, CSRF token included,
+    /// while the user stayed signed in.
+    @Test func nonJSONValueDropsOnlyThatKey() async throws {
+        let driver = MemorySessionDriver()
+        var session = await driver.create()
+        session.userid = "signed-in"
+        session.data["kept"] = "yes"
+        session.data["when"] = Date()
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.userid == "signed-in")
+        #expect(resumed.data["kept"] as? String == "yes")
+        // The memory driver keeps values as they are, so "when" survives here.
+        #expect(resumed.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// A stored session without a CSRF token gets one when it's resumed.
+    @Test func resumeRestoresMissingCSRF() async throws {
+        let driver = MemorySessionDriver()
+        var session = await driver.create()
+        session.data.removeValue(forKey: "csrf")
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect((resumed.data["csrf"] as? String)?.isEmpty == false)
         await driver.destroy(token: session.token)
     }
 

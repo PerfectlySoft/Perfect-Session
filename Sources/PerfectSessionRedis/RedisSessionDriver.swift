@@ -60,6 +60,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
             throw InvalidSessionError()
         }
         session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
         return session
     }
 
@@ -134,10 +135,8 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
             "idle":      session.idle,
             "ipaddress": session.ipaddress,
             "useragent": session.useragent,
-            "data":      JSONSerialization.isValidJSONObject(session.data) ? session.data : [:],
+            "data":      session.jsonSafeData(),
         ]
-        // JSONSerialization raises an uncatchable exception for a value JSON can't hold. Like
-        // tojson(), save such data as empty rather than terminate the process.
         guard JSONSerialization.isValidJSONObject(dict),
               let d = try? JSONSerialization.data(withJSONObject: dict),
               let s = String(data: d, encoding: .utf8) else { return nil }

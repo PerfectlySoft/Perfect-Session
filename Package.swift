@@ -23,6 +23,9 @@ let package = Package(
     targets: [
         .target(
             name: "PerfectSessionCore",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
