@@ -13,9 +13,11 @@ public struct RedisSessionConnector: Sendable {
     /// Prepended to each token to make its Redis key. Tokens come from clients' cookies, so the
     /// prefix keeps a token from naming one of the application's own keys.
     nonisolated(unsafe) public static var keyPrefix: String = "perfect-session:"
-    /// Seconds each Redis call may take (see Perfect-Redis's `RedisClientIdentifier`), or nil to
-    /// wait indefinitely.
-    nonisolated(unsafe) public static var commandTimeout: Double? = nil
+    /// Seconds each Redis call may take, 5 by default, or nil to wait indefinitely. A call that
+    /// runs out throws (the driver logs it, and `resume` throws `InvalidSessionError`), and its
+    /// connection is closed; see Perfect-Redis's `RedisClientIdentifier.commandTimeout`. It also
+    /// bounds connecting, after the host name lookup.
+    nonisolated(unsafe) public static var commandTimeout: Double? = 5
     private init() {}
 }
 

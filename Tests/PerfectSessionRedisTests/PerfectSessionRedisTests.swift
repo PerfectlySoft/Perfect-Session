@@ -1,6 +1,11 @@
 import Testing
 import Foundation
 import Logging
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import PerfectSessionRedis
 import PerfectSessionCore
 import PerfectRedis
@@ -87,6 +92,40 @@ enum RedisLive {
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
         }
+    }
+
+    /// A Redis call that gets no reply gives up after RedisSessionConnector.commandTimeout,
+    /// 5 seconds by default (it used to wait forever).
+    @Test func commandTimeoutDefaultsToFiveSeconds() async throws {
+        #expect(RedisSessionConnector.commandTimeout == 5)
+        let driver = getDriver()
+        let listener = try SilentListener()
+        defer { listener.close() }
+        RedisSessionConnector.host = "127.0.0.1"
+        RedisSessionConnector.port = listener.port
+        defer { _ = getDriver() }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let outcome = await withTaskGroup(of: String.self) { group in
+            group.addTask {
+                do {
+                    _ = try await driver.resume(token: "anything")
+                    return "resumed"
+                } catch {
+                    return "threw"
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(15))
+                return "still waiting"
+            }
+            let first = await group.next() ?? ""
+            group.cancelAll()
+            return first
+        }
+        let elapsed = clock.now - start
+        #expect(outcome == "threw")
+        #expect(elapsed >= .seconds(4) && elapsed < .seconds(9), "\(elapsed)")
     }
 
     /// An idle time near Int.max made SET's PX argument unrepresentable, so save() failed and
@@ -316,5 +355,44 @@ struct CapturingLogHandler: LogHandler {
         let identified = logs.contains(PerfectSession.logID(session.token))
         if leaked || !identified { print(logs) }
         exit(!leaked && identified ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
+}
+
+/// A TCP listener that never accepts or answers: connections complete in the kernel's backlog,
+/// then nothing is ever sent back.
+final class SilentListener: @unchecked Sendable {
+    let fd: Int32
+    let port: Int
+
+    struct Failure: Error {}
+
+    init() throws {
+        #if os(Linux)
+        let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #else
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        #endif
+        guard fd >= 0 else { throw Failure() }
+        self.fd = fd
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = 0
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, length) == 0 && listen(fd, 16) == 0 && getsockname(fd, $0, &length) == 0
+            }
+        }
+        guard bound else { throw Failure() }
+        port = Int(UInt16(bigEndian: address.sin_port))
+    }
+
+    func close() {
+        #if os(Linux)
+        _ = Glibc.close(fd)
+        #else
+        _ = Darwin.close(fd)
+        #endif
     }
 }
