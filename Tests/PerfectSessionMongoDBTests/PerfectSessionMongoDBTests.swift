@@ -4,15 +4,8 @@ import Foundation
 import PerfectSessionCore
 import PerfectMongoDB
 
-/// Needs a MongoDB server: MONGODB_TESTS=1 [MONGODB_URI=mongodb://host:27017] swift test
-@Suite(.serialized) struct PerfectSessionMongoDBTests {
-
-    static let mongoEnabled = ProcessInfo.processInfo.environment["MONGODB_TESTS"] == "1"
-    static let uri = ProcessInfo.processInfo.environment["MONGODB_URI"] ?? "mongodb://localhost"
-
-    func getDriver(collection: String = "sessions_test") throws -> MongoDBSessionDriver {
-        try MongoDBSessionDriver(uri: Self.uri, database: "perfect_sessions_test", collection: collection)
-    }
+/// SessionDocument encoding; no server needed.
+@Suite struct MongoDBSessionDocumentTests {
 
     @Test func documentRoundTripKeepsDataTypes() throws {
         var session = PerfectSession()
@@ -68,9 +61,22 @@ import PerfectMongoDB
         #expect((nested?["in\u{0}ner"] as? [String: Any])?["%"] as? Int == 3)
         #expect(((restored.data["list"] as? [Any])?.first as? [String: Any])?[""] as? Int == 4)
     }
+}
+
+/// Live-test settings, outside the suite so its traits can refer to them.
+enum MongoDBLive {
+    static let mongoEnabled = ProcessInfo.processInfo.environment["MONGODB_TESTS"] == "1"
+    static let uri = ProcessInfo.processInfo.environment["MONGODB_URI"] ?? "mongodb://localhost"
+}
+
+/// Needs a MongoDB server: MONGODB_TESTS=1 [MONGODB_URI=mongodb://host:27017] swift test
+@Suite(.serialized, .enabled(if: MongoDBLive.mongoEnabled, "set MONGODB_TESTS=1 to run against a server")) struct PerfectSessionMongoDBTests {
+
+    func getDriver(collection: String = "sessions_test") throws -> MongoDBSessionDriver {
+        try MongoDBSessionDriver(uri: MongoDBLive.uri, database: "perfect_sessions_test", collection: collection)
+    }
 
     @Test func emptyKeySavesAndResumes() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.data[""] = "empty"
@@ -83,7 +89,6 @@ import PerfectMongoDB
     }
 
     @Test func saveAfterDestroyDoesNotResurrect() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.userid = "logged-out"
@@ -95,7 +100,6 @@ import PerfectMongoDB
     }
 
     @Test func setupPurgesLegacySessionsOnly() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver(collection: "sessions_legacy_test")
         func insertLegacy(_ token: String) async throws {
             // The shape Perfect-Session-MongoDB wrote: its own _id, the token in a field, data as JSON text.
@@ -145,7 +149,6 @@ import PerfectMongoDB
     }
 
     @Test func createAndResume() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         let session = await driver.create(ipaddress: "10.0.0.1", useragent: "MongoTest/1.0")
         #expect(!session.token.isEmpty)
@@ -159,7 +162,6 @@ import PerfectMongoDB
     }
 
     @Test func resumeMissing() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: "no-such-token")
@@ -167,7 +169,6 @@ import PerfectMongoDB
     }
 
     @Test func saveAndResume() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.userid = "mongo-user-1"
@@ -182,7 +183,6 @@ import PerfectMongoDB
     }
 
     @Test func destroyRemovesSession() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         let session = await driver.create()
         await driver.destroy(token: session.token)
@@ -192,7 +192,6 @@ import PerfectMongoDB
     }
 
     @Test func dataIsStoredAsSubdocument() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.data["role"] = "admin"
@@ -207,7 +206,6 @@ import PerfectMongoDB
     }
 
     @Test func setupCreatesTTLIndexAndCleanRemovesExpired() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver(collection: "sessions_ttl_test")
         try await driver.pool.withClient { client in
             _ = client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_ttl_test").drop()
@@ -233,4 +231,21 @@ import PerfectMongoDB
         _ = try await driver.resume(token: live.token)
         await driver.destroy(token: live.token)
     }
+
+    /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
+    @Test func serverIsReachable() async throws {
+        let driver = try getDriver()
+        let reachable = try await driver.pool.withClient { client in
+            if case .replyDoc = client.serverStatus() { return true }
+            return false
+        }
+        #expect(reachable, "can't reach MongoDB at \(MongoDBLive.uri)")
+    }
+}
+
+/// CI sets SESSION_REQUIRE_LIVE=1, so a job that forgets MONGODB_TESTS fails rather than passing with
+/// the live suite skipped.
+@Test func mongoDBLiveTestsRunWhenRequired() {
+    let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
+    #expect(!required || MongoDBLive.mongoEnabled, "SESSION_REQUIRE_LIVE=1 but MONGODB_TESTS is not 1")
 }

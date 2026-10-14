@@ -2,17 +2,22 @@ import Testing
 import Foundation
 @testable import PerfectSessionPostgreSQL
 import PerfectSessionCore
+import PerfectPostgreSQL
+
+/// Live-test settings, outside the suite so its traits can refer to them.
+enum PostgreSQLLive {
+    static let pgEnabled = ProcessInfo.processInfo.environment["PG_TESTS"] == "1"
+}
 
 // Serialized: each test sets the connector's global settings.
-@Suite(.serialized) struct PerfectSessionPostgreSQLTests {
-
-    static let pgEnabled = ProcessInfo.processInfo.environment["PG_TESTS"] == "1"
+@Suite(.serialized, .enabled(if: PostgreSQLLive.pgEnabled, "set PG_TESTS=1 to run against a server")) struct PerfectSessionPostgreSQLTests {
 
     func getDriver() async -> PostgreSQLSessionDriver {
         PostgreSQLSessionConnector.host     = ProcessInfo.processInfo.environment["PG_HOST"]     ?? "localhost"
         PostgreSQLSessionConnector.username = ProcessInfo.processInfo.environment["PG_USER"]     ?? "postgres"
         PostgreSQLSessionConnector.password = ProcessInfo.processInfo.environment["PG_PASSWORD"] ?? ""
         PostgreSQLSessionConnector.database = ProcessInfo.processInfo.environment["PG_DATABASE"] ?? "perfect_sessions_test"
+        PostgreSQLSessionConnector.port     = Int(ProcessInfo.processInfo.environment["PG_PORT"] ?? "") ?? 5432
         PostgreSQLSessionConnector.table    = "test_sessions"
         let driver = PostgreSQLSessionDriver()
         await driver.setup()
@@ -20,7 +25,6 @@ import PerfectSessionCore
     }
 
     @Test func createAndResume() async throws {
-        guard Self.pgEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create(ipaddress: "192.168.1.1", useragent: "TestAgent/1.0")
         #expect(!session.token.isEmpty)
@@ -32,7 +36,6 @@ import PerfectSessionCore
     }
 
     @Test func resumeMissing() async {
-        guard Self.pgEnabled else { return }
         let driver = await getDriver()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: "no-such-token")
@@ -40,7 +43,6 @@ import PerfectSessionCore
     }
 
     @Test func saveAndResume() async throws {
-        guard Self.pgEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.userid = "pg-user-1"
@@ -53,7 +55,6 @@ import PerfectSessionCore
     }
 
     @Test func destroy() async {
-        guard Self.pgEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create()
         await driver.destroy(token: session.token)
@@ -63,7 +64,6 @@ import PerfectSessionCore
     }
 
     @Test func clean() async {
-        guard Self.pgEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.idle    = 1
@@ -74,4 +74,20 @@ import PerfectSessionCore
             _ = try await driver.resume(token: session.token)
         }
     }
+
+    /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
+    @Test func serverIsReachable() async {
+        _ = await getDriver()
+        let db = PGConnection()
+        defer { db.close() }
+        #expect(db.connectdb(PostgreSQLSessionConnector.connectionString()) == .ok,
+                "can't reach PostgreSQL: \(db.errorMessage())")
+    }
+}
+
+/// CI sets SESSION_REQUIRE_LIVE=1, so a job that forgets PG_TESTS fails rather than passing with
+/// the live suite skipped.
+@Test func postgreSQLLiveTestsRunWhenRequired() {
+    let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
+    #expect(!required || PostgreSQLLive.pgEnabled, "SESSION_REQUIRE_LIVE=1 but PG_TESTS is not 1")
 }

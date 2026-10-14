@@ -3,10 +3,13 @@ import Foundation
 @testable import PerfectSessionSQLite
 import PerfectSessionCore
 
-// Serialized: each test sets the connector's global settings.
-@Suite(.serialized) struct PerfectSessionSQLiteTests {
-
+/// Live-test settings, outside the suite so its traits can refer to them.
+enum SQLiteLive {
     static let sqliteEnabled = ProcessInfo.processInfo.environment["SQLITE_TESTS"] == "1"
+}
+
+// Serialized: each test sets the connector's global settings.
+@Suite(.serialized, .enabled(if: SQLiteLive.sqliteEnabled, "set SQLITE_TESTS=1 to run")) struct PerfectSessionSQLiteTests {
 
     func getDriver() async -> SQLiteSessionDriver {
         let tmp = FileManager.default.temporaryDirectory
@@ -20,7 +23,6 @@ import PerfectSessionCore
     }
 
     @Test func createAndResume() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create(ipaddress: "127.0.0.1", useragent: "SQLiteTest/1.0")
         #expect(!session.token.isEmpty)
@@ -32,7 +34,6 @@ import PerfectSessionCore
     }
 
     @Test func resumeMissing() async {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: "no-such-token")
@@ -40,7 +41,6 @@ import PerfectSessionCore
     }
 
     @Test func saveAndResume() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.userid = "sqlite-user-1"
@@ -53,7 +53,6 @@ import PerfectSessionCore
     }
 
     @Test func destroy() async {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create()
         await driver.destroy(token: session.token)
@@ -63,7 +62,6 @@ import PerfectSessionCore
     }
 
     @Test func clean() async {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.idle    = 1
@@ -76,7 +74,6 @@ import PerfectSessionCore
     }
 
     @Test func dataRoundTrip() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.data["string"] = "world"
@@ -87,4 +84,11 @@ import PerfectSessionCore
         #expect(resumed.data["number"] as? Int == 42)
         await driver.destroy(token: session.token)
     }
+}
+
+/// CI sets SESSION_REQUIRE_LIVE=1, so a job that forgets SQLITE_TESTS fails rather than passing with
+/// the live suite skipped.
+@Test func sqliteLiveTestsRunWhenRequired() {
+    let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
+    #expect(!required || SQLiteLive.sqliteEnabled, "SESSION_REQUIRE_LIVE=1 but SQLITE_TESTS is not 1")
 }
