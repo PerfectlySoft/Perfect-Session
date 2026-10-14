@@ -90,6 +90,24 @@ import Foundation
         #expect(s.isValid())
     }
 
+    /// `updated + idle` trapped on overflow, so an idle of Int.max ("never expire") crashed
+    /// isValid() and MemorySessionDriver.clean().
+    @Test func hugeIdleDoesNotTrap() async throws {
+        var s = PerfectSession()
+        s.idle = Int.max
+        #expect(s.isValid())
+        #expect(s.expires == Int.max)
+        s.idle = Int.min
+        #expect(!s.isValid())
+
+        let driver = MemorySessionDriver()
+        var stored = await driver.create()
+        stored.idle = Int.max
+        await driver.save(stored)
+        await driver.clean()
+        _ = try await driver.resume(token: stored.token)
+    }
+
     @Test func sessionIsValidIPLock() {
         var s = PerfectSession()
         s.idle      = 86400

@@ -41,7 +41,7 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
     public func clean() async {
         let now = Int(Date().timeIntervalSince1970)
         lock.withLock {
-            sessions = sessions.filter { _, s in (s.updated + s.idle) > now }
+            sessions = sessions.filter { _, s in s.expires > now }
         }
     }
 }

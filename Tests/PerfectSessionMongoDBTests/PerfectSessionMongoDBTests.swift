@@ -27,6 +27,18 @@ import PerfectMongoDB
         #expect(restored.data["name"] as? String == "x")
     }
 
+    /// `updated + idle` trapped on overflow when building the document, and a far-future
+    /// `expiresAt` trapped in the BSON encoder.
+    @Test(arguments: [Int.max, Int.max / 2, 1 << 50, Int.min, -(1 << 50)])
+    func hugeIdleDoesNotTrap(_ idle: Int) throws {
+        var session = PerfectSession()
+        session.idle = idle
+        let document = SessionDocument(session)
+        let seconds = document.expiresAt.timeIntervalSince1970
+        #expect(seconds <= 253_402_300_799 && seconds >= -62_135_596_800)
+        _ = try BSONEncoder().encode(document)
+    }
+
     @Test func keysBSONCantHoldAreEscapedAndRestored() throws {
         let awkward = ["", "%", "%%", "50%", "%25", "%00", "a%b", "nul\u{0}x", "\u{0}", "plain", "a.b", "$x"]
         for key in awkward {

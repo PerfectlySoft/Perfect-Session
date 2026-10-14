@@ -39,6 +39,14 @@ public struct PerfectSession: @unchecked Sendable {
         data = obj
     }
 
+    /// When the session expires (seconds since 1970): `updated + idle`, clamped instead of
+    /// overflowing, so an `idle` of `Int.max` means "never".
+    public var expires: Int {
+        let (sum, overflow) = updated.addingReportingOverflow(idle)
+        guard overflow else { return sum }
+        return idle > 0 ? Int.max : Int.min
+    }
+
     public mutating func touch() {
         updated = Int(Date().timeIntervalSince1970)
     }
@@ -46,7 +54,7 @@ public struct PerfectSession: @unchecked Sendable {
     /// Returns false if the session has expired or IP/UA locks fail.
     public func isValid(ipaddress remoteIP: String = "", useragent remoteUA: String = "") -> Bool {
         let now = Int(Date().timeIntervalSince1970)
-        guard (updated + idle) > now else { return false }
+        guard expires > now else { return false }
         if SessionConfig.IPAddressLock && !remoteIP.isEmpty && remoteIP != ipaddress { return false }
         if SessionConfig.userAgentLock && !remoteUA.isEmpty && remoteUA != useragent { return false }
         return true

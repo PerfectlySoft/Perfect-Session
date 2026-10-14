@@ -215,8 +215,13 @@ struct SessionDocument: Codable, Sendable {
         // Through JSON text, not [String: Any] casts: on Darwin a JSON true and 1 are both NSNumber.
         data      = ((try? JSONDecoder().decode(JSONValue.self, from: Data(session.tojson().utf8))) ?? .object([:]))
             .mappingKeys(Self.escape)
-        expiresAt = Date(timeIntervalSince1970: TimeInterval(session.updated + session.idle))
+        expiresAt = Date(timeIntervalSince1970: TimeInterval(min(max(session.expires, Self.earliestExpiry), Self.latestExpiry)))
     }
+
+    /// BSON dates are 64-bit milliseconds, and Perfect-MongoDB's encoder traps on a `Date` outside
+    /// that range, so `expiresAt` is clamped to years 0001 through 9999.
+    static let earliestExpiry = -62_135_596_800
+    static let latestExpiry = 253_402_300_799
 
     var session: PerfectSession {
         var session = PerfectSession()
