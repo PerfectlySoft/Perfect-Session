@@ -19,10 +19,9 @@ public struct MongoDBSessionConnector: Sendable {
 ///       data: { ... }, expiresAt: <Date> }
 ///
 /// `data` is a real subdocument, not JSON text. Keys libmongoc won't store are escaped (see
-/// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`), so MongoDB
+/// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`, or `created + absoluteTimeout` if earlier), so MongoDB
 /// deletes expired sessions on its own; `clean()` still deletes them immediately for callers
-/// that rely on it. Like the other drivers, `resume` returns expired sessions too: callers
-/// check `PerfectSession.isValid()`.
+/// that rely on it. Like the other drivers, `resume` refuses an expired session.
 ///
 /// `save` only updates an existing session, so a save racing a `destroy` (logout) can't bring
 /// the session back. `setup()` also deletes documents left by the archived Perfect-Session-MongoDB
@@ -76,7 +75,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
@@ -85,7 +84,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         do {
             try await withCollection { try $0.insert(document) }
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
@@ -97,17 +96,23 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
                 try sessions.findOne(SessionDocument.self, filter: Self.filter(token: token))
             }
         } catch {
-            logger.error("session resume failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session resume failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
             throw InvalidSessionError()
         }
-        guard var session = found?.session else {
+        // The TTL monitor only runs about once a minute, so check expiry here too.
+        guard var session = found?.session, !session.isExpired() else {
             throw InvalidSessionError()
         }
         session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
         return session
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         let document = SessionDocument(session)
         do {
             let matched = try await withCollection { sessions in
@@ -116,10 +121,10 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
             if matched == 0 {
                 // Expected after a logout when middleware saves at the end of the request.
                 logger.debug("session save matched no session (destroyed or expired); not recreated",
-                             metadata: ["eventid": "\(session.token)"])
+                             metadata: ["session": "\(PerfectSession.logID(session.token))"])
             }
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
     }
 
@@ -127,18 +132,33 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         do {
             _ = try await withCollection { try $0.deleteOne(filter: Self.filter(token: token)) }
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         let now = Date()
+        let cutoff = absoluteTimeout > 0 ? Int(now.timeIntervalSince1970) - absoluteTimeout : nil
         do {
             try await withCollection { sessions in
                 let before = BSON()
                 before.append(key: "$lt", dateTime: Self.millis(now))
-                let filter = BSON()
-                filter.append(key: "expiresAt", document: before)
+                let expired = BSON()
+                expired.append(key: "expiresAt", document: before)
+                guard let cutoff else {
+                    try sessions.deleteMany(filter: expired)
+                    return
+                }
+                // Documents saved before absoluteTimeout was set can have a later expiresAt.
+                let filter = try BSON(json: """
+                    {"$or": [{"expiresAt": {"$lt": {"$date": {"$numberLong": "\(Self.millis(now))"}}}},
+                             {"created": {"$lte": \(cutoff)}}]}
+                    """)
                 try sessions.deleteMany(filter: filter)
             }
         } catch {
@@ -204,7 +224,7 @@ struct SessionDocument: Codable, Sendable {
     var data: JSONValue
     var expiresAt: Date
 
-    init(_ session: PerfectSession) {
+    init(_ session: PerfectSession, absoluteTimeout: Int = SessionConfig.absoluteTimeout) {
         _id       = session.token
         userid    = session.userid
         created   = session.created
@@ -215,8 +235,14 @@ struct SessionDocument: Codable, Sendable {
         // Through JSON text, not [String: Any] casts: on Darwin a JSON true and 1 are both NSNumber.
         data      = ((try? JSONDecoder().decode(JSONValue.self, from: Data(session.tojson().utf8))) ?? .object([:]))
             .mappingKeys(Self.escape)
-        expiresAt = Date(timeIntervalSince1970: TimeInterval(session.updated + session.idle))
+        expiresAt = Date(timeIntervalSince1970: TimeInterval(min(max(session.expiry(absoluteTimeout: absoluteTimeout),
+                                                                         Self.earliestExpiry), Self.latestExpiry)))
     }
+
+    /// BSON dates are 64-bit milliseconds, and Perfect-MongoDB's encoder traps on a `Date` outside
+    /// that range, so `expiresAt` is clamped to years 0001 through 9999.
+    static let earliestExpiry = -62_135_596_800
+    static let latestExpiry = 253_402_300_799
 
     var session: PerfectSession {
         var session = PerfectSession()

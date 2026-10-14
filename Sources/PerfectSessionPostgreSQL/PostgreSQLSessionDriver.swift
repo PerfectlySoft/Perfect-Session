@@ -11,16 +11,29 @@ public struct PostgreSQLSessionConnector: Sendable {
     nonisolated(unsafe) public static var port: Int        = 5432
     private init() {}
 
+    /// A libpq connection URI for the connector's settings.
     public static func connectionString() -> String {
-        let u = username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? username
-        let p = password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? password
-        let h = host.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? host
-        let d = database.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? database
-        return "postgresql://\(u):\(p)@\(h):\(port)/\(d)"
+        connectionString(username: username, password: password, host: host, port: port, database: database)
     }
+
+    /// A libpq connection URI. Each part is percent-encoded except RFC 3986's unreserved
+    /// characters, so a password containing `@`, `/`, `:`, `?` or `#` can't change the URI's shape.
+    /// The host may also be a bracketed IPv6 address, or a Unix-socket directory (encoded, as
+    /// libpq expects).
+    public static func connectionString(username: String, password: String, host: String,
+                                        port: Int, database: String) -> String {
+        func encode(_ part: String) -> String {
+            part.addingPercentEncoding(withAllowedCharacters: unreserved) ?? part
+        }
+        let h = host.addingPercentEncoding(withAllowedCharacters: unreserved.union(CharacterSet(charactersIn: "[]:"))) ?? host
+        return "postgresql://\(encode(username)):\(encode(password))@\(h):\(port)/\(encode(database))"
+    }
+
+    private static let unreserved = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 }
 
-public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
+public final class PostgreSQLSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {
@@ -28,9 +41,9 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS "\(PostgreSQLSessionConnector.table)" (
                 "token"     varchar NOT NULL,
                 "userid"    varchar,
-                "created"   int4 NOT NULL DEFAULT 0,
-                "updated"   int4 NOT NULL DEFAULT 0,
-                "idle"      int4 NOT NULL DEFAULT 0,
+                "created"   int8 NOT NULL DEFAULT 0,
+                "updated"   int8 NOT NULL DEFAULT 0,
+                "idle"      int8 NOT NULL DEFAULT 0,
                 "data"      text,
                 "ipaddress" varchar,
                 "useragent" text,
@@ -42,7 +55,7 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
@@ -73,14 +86,20 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
         if let d = result.getFieldString(tupleIndex: 0, fieldIndex: 5) { s.fromjson(d) }
         s.ipaddress = result.getFieldString(tupleIndex: 0, fieldIndex: 6) ?? ""
         s.useragent = result.getFieldString(tupleIndex: 0, fieldIndex: 7) ?? ""
+        guard !s.isExpired() else { throw InvalidSessionError() }
         s._state    = "resume"
+        s.setCSRF()   // a stored session without a CSRF token gets one
         return s
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         exec(
-            "UPDATE \"\(PostgreSQLSessionConnector.table)\" SET userid=$1,updated=$2,idle=$3,data=$4 WHERE token=$5",
-            params: [session.userid, session.updated, session.idle, session.tojson(), session.token]
+            "UPDATE \"\(PostgreSQLSessionConnector.table)\" SET userid=$1,created=$2,updated=$3,idle=$4,data=$5 WHERE token=$6",
+            params: [session.userid, session.created, session.updated, session.idle, session.tojson(), session.token]
         )
     }
 
@@ -88,11 +107,21 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
         exec("DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE token=$1", params: [token])
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
-        exec(
-            "DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE updated + idle < $1",
-            params: [Int(Date().timeIntervalSince1970)]
-        )
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
+        let now = Int(Date().timeIntervalSince1970)
+        // numeric arithmetic: an integer sum overflows (an error) for an idle near the type's max.
+        let table = "\"\(PostgreSQLSessionConnector.table)\""
+        if absoluteTimeout > 0 {
+            exec("DELETE FROM \(table) WHERE updated::numeric + idle < $1 OR created::numeric + $2 <= $1",
+                 params: [now, absoluteTimeout])
+        } else {
+            exec("DELETE FROM \(table) WHERE updated::numeric + idle < $1", params: [now])
+        }
     }
 
     // MARK: - Private helpers

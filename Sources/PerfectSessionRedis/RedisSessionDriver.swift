@@ -5,87 +5,139 @@ import Logging
 
 private let logger = Logger(label: "perfect.session.redis")
 
+/// Connection settings used by `RedisSessionDriver`. Set them once at startup.
 public struct RedisSessionConnector: Sendable {
     nonisolated(unsafe) public static var host: String     = "127.0.0.1"
     nonisolated(unsafe) public static var password: String = ""
     nonisolated(unsafe) public static var port: Int        = 6379
+    /// Prepended to each token to make its Redis key. Tokens come from clients' cookies, so the
+    /// prefix keeps a token from naming one of the application's own keys.
+    nonisolated(unsafe) public static var keyPrefix: String = "perfect-session:"
+    /// Seconds each Redis call may take, 5 by default, or nil to wait indefinitely. A call that
+    /// runs out throws (the driver logs it, and `resume` throws `InvalidSessionError`), and its
+    /// connection is closed; see Perfect-Redis's `RedisClientIdentifier.commandTimeout`. It also
+    /// bounds connecting, after the host name lookup.
+    nonisolated(unsafe) public static var commandTimeout: Double? = 5
     private init() {}
 }
 
-public final class RedisSessionDriver: SessionDriver, @unchecked Sendable {
+/// Stores each session as a JSON string under `keyPrefix + token`, with a TTL of the session's
+/// `idle` seconds, renewed by every `save`. Each call opens its own connection.
+public final class RedisSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
         session.setCSRF()
+        guard session.idle > 0 else {
+            logger.error("session not stored: idle must be positive, not \(session.idle)")
+            return session
+        }
         guard let json = encode(session) else { return session }
         do {
-            let client = try await connect()
-            _ = try await client.set(
-                key: session.token, value: .string(json),
-                expires: Double(SessionConfig.idle)
-            )
-            try? await client.close()
+            _ = try await withClient { client in
+                try await client.set(key: self.key(session.token), value: .string(json),
+                                     expires: Self.ttl(session), ifNotExists: true)
+            }
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
 
     public func resume(token: String) async throws -> PerfectSession {
-        let client = try await connect()
+        let response: RedisResponse
         do {
-            let response = try await client.get(key: token)
-            try? await client.close()
-            guard let json = response.string, !json.isEmpty else { throw InvalidSessionError() }
-            guard var session = decode(token: token, json: json) else { throw InvalidSessionError() }
-            session._state = "resume"
-            return session
-        } catch let e as InvalidSessionError {
-            throw e
+            response = try await withClient { try await $0.get(key: self.key(token)) }
         } catch {
-            try? await client.close()
+            logger.error("session resume failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
             throw InvalidSessionError()
         }
+        guard let json = response.string, !json.isEmpty,
+              var session = decode(token: token, json: json), !session.isExpired() else {
+            throw InvalidSessionError()
+        }
+        session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
+        return session
     }
 
+    /// Updates a stored session and renews its TTL. A session that is no longer stored (it was
+    /// destroyed or has expired) isn't stored again, so a save racing a logout can't bring the
+    /// session back. A session whose `idle` is 0 or less is deleted.
     public func save(_ session: PerfectSession) async {
         var s = session
         s.touch()
-        guard let json = encode(s) else { return }
         do {
-            let client = try await connect()
-            _ = try await client.set(
-                key: s.token, value: .string(json),
-                expires: Double(SessionConfig.idle)
-            )
-            try? await client.close()
+            guard !s.isExpired() else {   // idle of 0 or less, or past absoluteTimeout
+                _ = try await withClient { try await $0.delete(keys: self.key(s.token)) }
+                return
+            }
+            guard let json = encode(s) else { return }
+            let token = s.token, ttl = Self.ttl(s)
+            let reply = try await withClient { client in
+                try await client.set(key: self.key(token), value: .string(json),
+                                     expires: ttl, ifExists: true)
+            }
+            if reply.isNil {
+                logger.debug("session save matched no session (destroyed or expired); not recreated",
+                             metadata: ["session": "\(PerfectSession.logID(s.token))"])
+            }
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(s.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(s.token))"])
         }
     }
 
     public func destroy(token: String) async {
         do {
-            let client = try await connect()
-            try await client.delete(keys: token)
-            try? await client.close()
+            _ = try await withClient { try await $0.delete(keys: self.key(token)) }
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 
     // MARK: - Private helpers
 
+    /// The longest TTL set, in seconds (about 31,700 years). PX takes milliseconds, which for an
+    /// idle near Int.max neither Perfect-Redis (Int milliseconds) nor Redis (now + PX must fit
+    /// in 64 bits) accepts; the session's own `idle` is still stored as is.
+    static let maximumTTL = 1_000_000_000_000
+
+    /// The key's TTL in seconds: until the session's `expiry(absoluteTimeout:)`, at most
+    /// `maximumTTL`, at least 1 (save() deletes a session already past it).
+    static func ttl(_ session: PerfectSession, absoluteTimeout: Int = SessionConfig.absoluteTimeout,
+                    now: Int = Int(Date().timeIntervalSince1970)) -> Double {
+        let (remaining, overflow) = session.expiry(absoluteTimeout: absoluteTimeout).subtractingReportingOverflow(now)
+        return Double(max(1, min(overflow ? maximumTTL : remaining, maximumTTL)))
+    }
+
+    private func key(_ token: String) -> String {
+        RedisSessionConnector.keyPrefix + token
+    }
+
+    /// Runs **body** on a new connection, then closes it.
+    private func withClient<T: Sendable>(_ body: (RedisClient) async throws -> T) async throws -> T {
+        let client = try await connect()
+        do {
+            let result = try await body(client)
+            try? await client.close()
+            return result
+        } catch {
+            try? await client.close()
+            throw error
+        }
+    }
+
     private func connect() async throws -> RedisClient {
         let id = RedisClientIdentifier(
             withHost: RedisSessionConnector.host,
             port: RedisSessionConnector.port,
-            password: RedisSessionConnector.password
+            password: RedisSessionConnector.password,
+            commandTimeout: RedisSessionConnector.commandTimeout
         )
         return try await RedisClient.connect(withIdentifier: id)
     }
@@ -98,9 +150,10 @@ public final class RedisSessionDriver: SessionDriver, @unchecked Sendable {
             "idle":      session.idle,
             "ipaddress": session.ipaddress,
             "useragent": session.useragent,
-            "data":      session.data,
+            "data":      session.jsonSafeData(),
         ]
-        guard let d = try? JSONSerialization.data(withJSONObject: dict),
+        guard JSONSerialization.isValidJSONObject(dict),
+              let d = try? JSONSerialization.data(withJSONObject: dict),
               let s = String(data: d, encoding: .utf8) else { return nil }
         return s
     }

@@ -1,18 +1,17 @@
 import Testing
 import Foundation
+import Logging
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import PerfectSessionMongoDB
 import PerfectSessionCore
 import PerfectMongoDB
 
-/// Needs a MongoDB server: MONGODB_TESTS=1 [MONGODB_URI=mongodb://host:27017] swift test
-@Suite(.serialized) struct PerfectSessionMongoDBTests {
-
-    static let mongoEnabled = ProcessInfo.processInfo.environment["MONGODB_TESTS"] == "1"
-    static let uri = ProcessInfo.processInfo.environment["MONGODB_URI"] ?? "mongodb://localhost"
-
-    func getDriver(collection: String = "sessions_test") throws -> MongoDBSessionDriver {
-        try MongoDBSessionDriver(uri: Self.uri, database: "perfect_sessions_test", collection: collection)
-    }
+/// SessionDocument encoding; no server needed.
+@Suite struct MongoDBSessionDocumentTests {
 
     @Test func documentRoundTripKeepsDataTypes() throws {
         var session = PerfectSession()
@@ -32,6 +31,18 @@ import PerfectMongoDB
         #expect(restored.data["flag"] as? Bool == true)
         #expect(restored.data["count"] as? Int == 1)
         #expect(restored.data["name"] as? String == "x")
+    }
+
+    /// `updated + idle` trapped on overflow when building the document, and a far-future
+    /// `expiresAt` trapped in the BSON encoder.
+    @Test(arguments: [Int.max, Int.max / 2, 1 << 50, Int.min, -(1 << 50)])
+    func hugeIdleDoesNotTrap(_ idle: Int) throws {
+        var session = PerfectSession()
+        session.idle = idle
+        let document = SessionDocument(session)
+        let seconds = document.expiresAt.timeIntervalSince1970
+        #expect(seconds <= 253_402_300_799 && seconds >= -62_135_596_800)
+        _ = try BSONEncoder().encode(document)
     }
 
     @Test func keysBSONCantHoldAreEscapedAndRestored() throws {
@@ -68,9 +79,22 @@ import PerfectMongoDB
         #expect((nested?["in\u{0}ner"] as? [String: Any])?["%"] as? Int == 3)
         #expect(((restored.data["list"] as? [Any])?.first as? [String: Any])?[""] as? Int == 4)
     }
+}
+
+/// Live-test settings, outside the suite so its traits can refer to them.
+enum MongoDBLive {
+    static let mongoEnabled = ProcessInfo.processInfo.environment["MONGODB_TESTS"] == "1"
+    static let uri = ProcessInfo.processInfo.environment["MONGODB_URI"] ?? "mongodb://localhost"
+}
+
+/// Needs a MongoDB server: MONGODB_TESTS=1 [MONGODB_URI=mongodb://host:27017] swift test
+@Suite(.serialized, .enabled(if: MongoDBLive.mongoEnabled, "set MONGODB_TESTS=1 to run against a server")) struct PerfectSessionMongoDBTests {
+
+    func getDriver(collection: String = "sessions_test") throws -> MongoDBSessionDriver {
+        try MongoDBSessionDriver(uri: MongoDBLive.uri, database: "perfect_sessions_test", collection: collection)
+    }
 
     @Test func emptyKeySavesAndResumes() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.data[""] = "empty"
@@ -83,7 +107,6 @@ import PerfectMongoDB
     }
 
     @Test func saveAfterDestroyDoesNotResurrect() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.userid = "logged-out"
@@ -95,7 +118,6 @@ import PerfectMongoDB
     }
 
     @Test func setupPurgesLegacySessionsOnly() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver(collection: "sessions_legacy_test")
         func insertLegacy(_ token: String) async throws {
             // The shape Perfect-Session-MongoDB wrote: its own _id, the token in a field, data as JSON text.
@@ -145,7 +167,6 @@ import PerfectMongoDB
     }
 
     @Test func createAndResume() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         let session = await driver.create(ipaddress: "10.0.0.1", useragent: "MongoTest/1.0")
         #expect(!session.token.isEmpty)
@@ -159,7 +180,6 @@ import PerfectMongoDB
     }
 
     @Test func resumeMissing() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: "no-such-token")
@@ -167,7 +187,6 @@ import PerfectMongoDB
     }
 
     @Test func saveAndResume() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.userid = "mongo-user-1"
@@ -181,8 +200,20 @@ import PerfectMongoDB
         await driver.destroy(token: session.token)
     }
 
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.idle = -10   // save() renews `updated`, so expire it through idle
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        await driver.destroy(token: session.token)
+    }
+
     @Test func destroyRemovesSession() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         let session = await driver.create()
         await driver.destroy(token: session.token)
@@ -192,7 +223,6 @@ import PerfectMongoDB
     }
 
     @Test func dataIsStoredAsSubdocument() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver()
         var session = await driver.create()
         session.data["role"] = "admin"
@@ -207,7 +237,6 @@ import PerfectMongoDB
     }
 
     @Test func setupCreatesTTLIndexAndCleanRemovesExpired() async throws {
-        guard Self.mongoEnabled else { return }
         let driver = try getDriver(collection: "sessions_ttl_test")
         try await driver.pool.withClient { client in
             _ = client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_ttl_test").drop()
@@ -222,15 +251,242 @@ import PerfectMongoDB
         #expect(hasTTL)
 
         var expired = await driver.create()
-        expired.updated = Int(Date().timeIntervalSince1970) - 10
-        expired.idle = 1
+        expired.idle = -10   // save() renews `updated`, so expire it through idle
         await driver.save(expired)
         let live = await driver.create()
-        await driver.clean()
-        await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: expired.token)
+        // Counted directly: resume() refuses an expired session whether or not clean() deleted it.
+        let token = expired.token
+        func stored() async throws -> Int {
+            try await driver.pool.withClient { client in
+                try client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_ttl_test")
+                    .countDocuments(filter: try BSON(json: #"{"_id": "\#(token)"}"#))
+            }
         }
+        #expect(try await stored() == 1)
+        await driver.clean()
+        #expect(try await stored() == 0)
         _ = try await driver.resume(token: live.token)
         await driver.destroy(token: live.token)
     }
+
+    /// Concurrent saves and resumes of one session: last writer wins, nothing is corrupted or lost.
+    @Test func concurrentSaveAndResume() async throws {
+        let driver = try getDriver()
+        let session = await driver.create()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in 0..<40 {
+                group.addTask {
+                    if i.isMultiple(of: 2) {
+                        var copy = session
+                        copy.data["n"] = i
+                        await driver.save(copy)
+                    } else {
+                        _ = try await driver.resume(token: session.token)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let final = try await driver.resume(token: session.token)
+        let n = try #require(final.data["n"] as? Int)
+        #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
+        #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// One value JSON can't hold used to make the drivers save empty data, CSRF token included,
+    /// while the user stayed signed in.
+    @Test func nonJSONValueDropsOnlyThatKey() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.userid = "signed-in"
+        session.data["kept"] = "yes"
+        session.data["when"] = Date()
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.userid == "signed-in")
+        #expect(resumed.data["kept"] as? String == "yes")
+        #expect(resumed.data["when"] == nil)
+        #expect(resumed.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// A stored session without a CSRF token gets one when it's resumed.
+    @Test func resumeRestoresMissingCSRF() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.data.removeValue(forKey: "csrf")
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect((resumed.data["csrf"] as? String)?.isEmpty == false)
+        await driver.destroy(token: session.token)
+    }
+
+    /// save() renews the idle time: a session saved within every `idle` seconds stays alive
+    /// past `idle` seconds from creation. Only Redis used to do this.
+    @Test func saveRenewsIdle() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        // Times are whole seconds, so allow a second of rounding either way: 3 + 3 seconds is
+        // past idle + 1 from creation, and 3 is under idle - 1 from each save.
+        session.idle = 5
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        session = try await driver.resume(token: session.token)
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        _ = try await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+    }
+
+    /// regenerate() used to restart the absolute timeout: the new session got a new `created`.
+    @Test func regenerateKeepsCreated() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.created -= 1000
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.created == session.created)
+        #expect(try await driver.resume(token: fresh.token).created == session.created)
+        await driver.destroy(token: fresh.token)
+    }
+
+    /// clean() and the TTL index used to ignore SessionConfig.absoluteTimeout.
+    @Test func cleanAndTTLHonourAbsoluteTimeout() async throws {
+        let driver = try getDriver()
+        var old = await driver.create()
+        old.created -= 1000
+        #expect(SessionDocument(old, absoluteTimeout: 500).expiresAt ==
+                Date(timeIntervalSince1970: TimeInterval(old.created + 500)))
+        await driver.save(old)
+        let young = await driver.create()
+        await driver.clean(absoluteTimeout: 500)
+        func stored(_ token: String) async throws -> Int {
+            try await driver.pool.withClient { client in
+                try client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_test")
+                    .countDocuments(filter: try BSON(json: #"{"_id": "\#(token)"}"#))
+            }
+        }
+        #expect(try await stored(old.token) == 0)
+        #expect(try await stored(young.token) == 1)
+        await driver.destroy(token: young.token)
+    }
+
+    @Test func regenerateMovesSessionToNewToken() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.userid = "user-before-login"
+        session.data["cart"] = 3
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.token != session.token)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        let resumed = try await driver.resume(token: fresh.token)
+        #expect(resumed.userid == "user-before-login")
+        #expect(resumed.data["cart"] as? Int == 3)
+        #expect(resumed.data["csrf"] as? String == fresh.data["csrf"] as? String)
+        #expect(resumed.data["csrf"] as? String != session.data["csrf"] as? String)
+        await driver.destroy(token: fresh.token)
+    }
+
+    /// Keys MongoDB treats specially in queries and updates are stored as data, at any depth.
+    @Test func operatorAndDottedKeysRoundTrip() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        let keys = ["$where", "$set", "$", "a.b", ".", "$x.y", "_id", "expiresAt"]
+        for key in keys { session.data[key] = key }
+        session.data["nested"] = ["$gt": 1, "c.d": ["$ne": "x"]]
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        for key in keys { #expect(resumed.data[key] as? String == key, "\(key)") }
+        let nested = resumed.data["nested"] as? [String: Any]
+        #expect(nested?["$gt"] as? Int == 1)
+        #expect((nested?["c.d"] as? [String: Any])?["$ne"] as? String == "x")
+        await driver.destroy(token: session.token)
+    }
+
+    /// The token is matched as a string, so one that looks like an operator matches nothing.
+    @Test(arguments: [#"{"$ne": ""}"#, "$ne", #"{"$gt": ""}"#, ".*", "\u{0}"])
+    func operatorLikeTokensMatchNothing(_ token: String) async throws {
+        let driver = try getDriver()
+        let other = await driver.create()
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: token)
+        }
+        await driver.destroy(token: token)
+        _ = try await driver.resume(token: other.token)
+        await driver.destroy(token: other.token)
+    }
+
+    /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
+    @Test func serverIsReachable() async throws {
+        let driver = try getDriver()
+        let reachable = try await driver.pool.withClient { client in
+            if case .replyDoc = client.serverStatus() { return true }
+            return false
+        }
+        #expect(reachable, "can't reach MongoDB at \(MongoDBLive.uri)")
+    }
 }
+
+/// CI sets SESSION_REQUIRE_LIVE=1, so a job that forgets MONGODB_TESTS fails rather than passing with
+/// the live suite skipped.
+@Test func mongoDBLiveTestsRunWhenRequired() {
+    let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
+    #expect(!required || MongoDBLive.mongoEnabled, "SESSION_REQUIRE_LIVE=1 but MONGODB_TESTS is not 1")
+}
+
+/// Collects every log line, with its metadata, in this process.
+final class CapturedLogs: @unchecked Sendable {
+    static let shared = CapturedLogs()
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    var text: String { lock.withLock { lines.joined(separator: "\n") } }
+}
+
+struct CapturingLogHandler: LogHandler {
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .trace
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+    func log(event: LogEvent) {
+        CapturedLogs.shared.append("\(event.message) \(event.metadata ?? [:]) \(metadata)")
+    }
+}
+
+/// Failures used to log the full session token as `eventid`; a token in a log is a session
+/// anyone with log access can take over. Runs in a child process so it can bootstrap logging.
+@Test(.disabled(if: underThreadSanitizer, "exit tests abort under ThreadSanitizer"))
+func mongodbLogsDoNotContainTokens() async {
+    await #expect(processExitsWith: .success) {
+        LoggingSystem.bootstrap { _ in CapturingLogHandler() }
+
+        let driver = try! MongoDBSessionDriver(uri: "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200&connectTimeoutMS=200")
+        var session = await driver.create()
+        session.data["x"] = 1
+        await driver.save(session)
+        _ = try? await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+        let logs = CapturedLogs.shared.text
+        let leaked = logs.contains(session.token)
+        let identified = logs.contains(PerfectSession.logID(session.token))
+        if leaked || !identified { print(logs) }
+        exit(!leaked && identified ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
+}
+
+/// Whether the ThreadSanitizer runtime is loaded. Exit tests abort under it (even one that only
+/// calls exit(0)), so they're skipped there.
+let underThreadSanitizer: Bool = {
+    #if os(Linux)
+    let defaultHandle: UnsafeMutableRawPointer? = nil          // RTLD_DEFAULT
+    #else
+    let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+    #endif
+    return dlsym(defaultHandle, "__tsan_init") != nil
+}()

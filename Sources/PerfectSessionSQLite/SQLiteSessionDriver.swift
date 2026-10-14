@@ -11,7 +11,7 @@ public struct SQLiteSessionConnector: Sendable {
     private init() {}
 }
 
-public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
+public final class SQLiteSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {
@@ -38,7 +38,7 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
@@ -60,7 +60,7 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
                 }
             )
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
@@ -85,17 +85,22 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
                 found = s
             }
         )
-        guard var s = found else { throw InvalidSessionError() }
+        guard var s = found, !s.isExpired() else { throw InvalidSessionError() }
         s._state = "resume"
+        s.setCSRF()   // a stored session without a CSRF token gets one
         return s
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         do {
             let db = try SQLite(SQLiteSessionConnector.databasePath)
             defer { db.close() }
             try db.execute(
-                statement: "UPDATE \"\(SQLiteSessionConnector.table)\" SET userid=?,updated=?,idle=?,data=?,ipaddress=?,useragent=? WHERE token=?",
+                statement: "UPDATE \"\(SQLiteSessionConnector.table)\" SET userid=?,updated=?,idle=?,data=?,ipaddress=?,useragent=?,created=? WHERE token=?",
                 doBindings: { stmt in
                     try stmt.bind(position: 1, session.userid)
                     try stmt.bind(position: 2, session.updated)
@@ -103,11 +108,12 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
                     try stmt.bind(position: 4, session.tojson())
                     try stmt.bind(position: 5, session.ipaddress)
                     try stmt.bind(position: 6, session.useragent)
-                    try stmt.bind(position: 7, session.token)
+                    try stmt.bind(position: 7, session.created)
+                    try stmt.bind(position: 8, session.token)
                 }
             )
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
     }
 
@@ -120,18 +126,29 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
                 doBindings: { stmt in try stmt.bind(position: 1, token) }
             )
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         do {
             let db = try SQLite(SQLiteSessionConnector.databasePath)
             defer { db.close() }
             let now = Int(Date().timeIntervalSince1970)
+            // A positive absolute timeout also deletes sessions created at or before now - timeout
+            // (SQLite turns an overflowing integer sum into a real, so neither side overflows).
+            let cutoff = absoluteTimeout > 0 ? now - absoluteTimeout : Int.min
             try db.execute(
-                statement: "DELETE FROM \"\(SQLiteSessionConnector.table)\" WHERE updated + idle < ?",
-                doBindings: { stmt in try stmt.bind(position: 1, now) }
+                statement: "DELETE FROM \"\(SQLiteSessionConnector.table)\" WHERE updated + idle < ? OR created <= ?",
+                doBindings: { stmt in
+                    try stmt.bind(position: 1, now)
+                    try stmt.bind(position: 2, cutoff)
+                }
             )
         } catch {
             logger.error("session clean failed: \(error)")

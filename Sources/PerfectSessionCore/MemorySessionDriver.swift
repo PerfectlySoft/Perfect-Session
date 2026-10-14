@@ -1,6 +1,7 @@
 import Foundation
 
 /// Thread-safe in-memory session store. Useful for development and testing.
+/// `@unchecked Sendable`: every access to `sessions` holds `lock`.
 public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
     private var sessions = [String: PerfectSession]()
     private let lock = NSLock()
@@ -9,7 +10,7 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
@@ -21,23 +22,35 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
 
     public func resume(token: String) async throws -> PerfectSession {
         let found = lock.withLock { sessions[token] }
-        guard var session = found else { throw InvalidSessionError() }
+        guard var session = found, !session.isExpired() else { throw InvalidSessionError() }
         session._state = "resume"
+        session.setCSRF()   // a stored session without a CSRF token gets one
         return session
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't stored (destroyed, cleaned, or never
+    /// created by this driver) isn't stored again, so a save racing a logout can't bring it back.
     public func save(_ session: PerfectSession) async {
-        lock.withLock { sessions[session.token] = session }
+        var session = session
+        session.touch()
+        lock.withLock {
+            if sessions[session.token] != nil { sessions[session.token] = session }
+        }
     }
 
     public func destroy(token: String) async {
         _ = lock.withLock { sessions.removeValue(forKey: token) }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         let now = Int(Date().timeIntervalSince1970)
         lock.withLock {
-            sessions = sessions.filter { _, s in (s.updated + s.idle) > now }
+            sessions = sessions.filter { _, s in !s.isExpired(at: now, absoluteTimeout: absoluteTimeout) }
         }
     }
 }

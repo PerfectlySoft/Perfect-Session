@@ -1,12 +1,34 @@
 import Testing
 import Foundation
+import Logging
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import PerfectSessionSQLite
 import PerfectSessionCore
+import PerfectSQLite
+
+/// Live-test settings, outside the suite so its traits can refer to them.
+enum SQLiteLive {
+    static let sqliteEnabled = ProcessInfo.processInfo.environment["SQLITE_TESTS"] == "1"
+}
 
 // Serialized: each test sets the connector's global settings.
-@Suite(.serialized) struct PerfectSessionSQLiteTests {
+@Suite(.serialized, .enabled(if: SQLiteLive.sqliteEnabled, "set SQLITE_TESTS=1 to run")) struct PerfectSessionSQLiteTests {
 
-    static let sqliteEnabled = ProcessInfo.processInfo.environment["SQLITE_TESTS"] == "1"
+    /// Whether a row is stored for **token**, read directly: resume() refuses expired sessions
+    /// whether or not clean() deleted them.
+    func isStored(_ token: String) throws -> Bool {
+        let db = try SQLite(SQLiteSessionConnector.databasePath)
+        defer { db.close() }
+        var found = false
+        try db.forEachRow(statement: #"SELECT 1 FROM "test_sessions" WHERE token = ?"#,
+                          doBindings: { try $0.bind(position: 1, token) },
+                          handleRow: { _, _ in found = true })
+        return found
+    }
 
     func getDriver() async -> SQLiteSessionDriver {
         let tmp = FileManager.default.temporaryDirectory
@@ -20,7 +42,6 @@ import PerfectSessionCore
     }
 
     @Test func createAndResume() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create(ipaddress: "127.0.0.1", useragent: "SQLiteTest/1.0")
         #expect(!session.token.isEmpty)
@@ -32,7 +53,6 @@ import PerfectSessionCore
     }
 
     @Test func resumeMissing() async {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: "no-such-token")
@@ -40,7 +60,6 @@ import PerfectSessionCore
     }
 
     @Test func saveAndResume() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.userid = "sqlite-user-1"
@@ -53,7 +72,6 @@ import PerfectSessionCore
     }
 
     @Test func destroy() async {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         let session = await driver.create()
         await driver.destroy(token: session.token)
@@ -62,21 +80,188 @@ import PerfectSessionCore
         }
     }
 
-    @Test func clean() async {
-        guard Self.sqliteEnabled else { return }
+    @Test func saveAfterDestroyDoesNotResurrect() async {
         let driver = await getDriver()
         var session = await driver.create()
-        session.idle    = 1
-        session.updated = Int(Date().timeIntervalSince1970) - 10
+        session.userid = "logged-out"
+        await driver.destroy(token: session.token)
         await driver.save(session)
-        await driver.clean()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
         }
     }
 
+    @Test func timesPast32BitsRoundTrip() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = Int.max
+        await driver.save(session)
+        await driver.clean()
+        #expect(try await driver.resume(token: session.token).idle == Int.max)
+        await driver.destroy(token: session.token)
+    }
+
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = -10   // save() renews `updated`, so expire it through idle
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        await driver.destroy(token: session.token)
+    }
+
+    @Test func clean() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle = -10   // save() renews `updated`, so expire it through idle
+        await driver.save(session)
+        #expect(try isStored(session.token))
+        await driver.clean()
+        #expect(!(try isStored(session.token)))
+    }
+
+    /// Tokens and data are bound as parameters, so SQL in them is just text. (NUL isn't covered:
+    /// PostgreSQL text can't hold it and SQLite text binding stops at it; see the README.)
+    @Test(arguments: ["' OR '1'='1", "x' OR 1=1 -- ", "x`; DROP TABLE `test_sessions`; --",
+                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\", "emoji 😀 and é"])
+    func sqlInTokensIsJustText(_ token: String) async throws {
+        let driver = await getDriver()
+        var other = await driver.create()
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: token)
+        }
+        await driver.destroy(token: token)
+        other.userid = token
+        other.data[token] = token
+        await driver.save(other)
+        let resumed = try await driver.resume(token: other.token)
+        #expect(resumed.userid == token, "\(token.debugDescription) became \(resumed.userid.debugDescription)")
+        #expect(resumed.data[token] as? String == token, "\(token.debugDescription)")
+        await driver.destroy(token: other.token)
+    }
+
+    /// Concurrent saves and resumes of one session: last writer wins, nothing is corrupted or lost.
+    @Test func concurrentSaveAndResume() async throws {
+        let driver = await getDriver()
+        let session = await driver.create()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in 0..<40 {
+                group.addTask {
+                    if i.isMultiple(of: 2) {
+                        var copy = session
+                        copy.data["n"] = i
+                        await driver.save(copy)
+                    } else {
+                        _ = try await driver.resume(token: session.token)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let final = try await driver.resume(token: session.token)
+        let n = try #require(final.data["n"] as? Int)
+        #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
+        #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// One value JSON can't hold used to make the drivers save empty data, CSRF token included,
+    /// while the user stayed signed in.
+    @Test func nonJSONValueDropsOnlyThatKey() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.userid = "signed-in"
+        session.data["kept"] = "yes"
+        session.data["when"] = Date()
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect(resumed.userid == "signed-in")
+        #expect(resumed.data["kept"] as? String == "yes")
+        #expect(resumed.data["when"] == nil)
+        #expect(resumed.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
+    /// A stored session without a CSRF token gets one when it's resumed.
+    @Test func resumeRestoresMissingCSRF() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.data.removeValue(forKey: "csrf")
+        await driver.save(session)
+        let resumed = try await driver.resume(token: session.token)
+        #expect((resumed.data["csrf"] as? String)?.isEmpty == false)
+        await driver.destroy(token: session.token)
+    }
+
+    /// save() renews the idle time: a session saved within every `idle` seconds stays alive
+    /// past `idle` seconds from creation. Only Redis used to do this.
+    @Test func saveRenewsIdle() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        // Times are whole seconds, so allow a second of rounding either way: 3 + 3 seconds is
+        // past idle + 1 from creation, and 3 is under idle - 1 from each save.
+        session.idle = 5
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        session = try await driver.resume(token: session.token)
+        await driver.save(session)
+        try await Task.sleep(for: .seconds(3))
+        _ = try await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+    }
+
+    /// regenerate() used to restart the absolute timeout: the new session got a new `created`.
+    @Test func regenerateKeepsCreated() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.created -= 1000
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.created == session.created)
+        #expect(try await driver.resume(token: fresh.token).created == session.created)
+        await driver.destroy(token: fresh.token)
+    }
+
+    /// clean() used to delete only sessions past their idle time, never ones past
+    /// SessionConfig.absoluteTimeout.
+    @Test func cleanHonoursAbsoluteTimeout() async throws {
+        let driver = await getDriver()
+        var old = await driver.create()
+        old.created -= 1000
+        await driver.save(old)
+        let young = await driver.create()
+        await driver.clean(absoluteTimeout: 500)
+        #expect(!(try isStored(old.token)))
+        #expect(try isStored(young.token))
+        await driver.clean(absoluteTimeout: 0)
+        #expect(try isStored(young.token))
+        await driver.destroy(token: young.token)
+    }
+
+    @Test func regenerateMovesSessionToNewToken() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.userid = "user-before-login"
+        session.data["cart"] = 3
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.token != session.token)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        let resumed = try await driver.resume(token: fresh.token)
+        #expect(resumed.userid == "user-before-login")
+        #expect(resumed.data["cart"] as? Int == 3)
+        #expect(resumed.data["csrf"] as? String == fresh.data["csrf"] as? String)
+        #expect(resumed.data["csrf"] as? String != session.data["csrf"] as? String)
+        await driver.destroy(token: fresh.token)
+    }
+
     @Test func dataRoundTrip() async throws {
-        guard Self.sqliteEnabled else { return }
         let driver = await getDriver()
         var session = await driver.create()
         session.data["string"] = "world"
@@ -88,3 +273,63 @@ import PerfectSessionCore
         await driver.destroy(token: session.token)
     }
 }
+
+/// CI sets SESSION_REQUIRE_LIVE=1, so a job that forgets SQLITE_TESTS fails rather than passing with
+/// the live suite skipped.
+@Test func sqliteLiveTestsRunWhenRequired() {
+    let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
+    #expect(!required || SQLiteLive.sqliteEnabled, "SESSION_REQUIRE_LIVE=1 but SQLITE_TESTS is not 1")
+}
+
+/// Collects every log line, with its metadata, in this process.
+final class CapturedLogs: @unchecked Sendable {
+    static let shared = CapturedLogs()
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    var text: String { lock.withLock { lines.joined(separator: "\n") } }
+}
+
+struct CapturingLogHandler: LogHandler {
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .trace
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+    func log(event: LogEvent) {
+        CapturedLogs.shared.append("\(event.message) \(event.metadata ?? [:]) \(metadata)")
+    }
+}
+
+/// Failures used to log the full session token as `eventid`; a token in a log is a session
+/// anyone with log access can take over. Runs in a child process so it can bootstrap logging.
+@Test(.disabled(if: underThreadSanitizer, "exit tests abort under ThreadSanitizer"))
+func sqliteLogsDoNotContainTokens() async {
+    await #expect(processExitsWith: .success) {
+        LoggingSystem.bootstrap { _ in CapturingLogHandler() }
+        SQLiteSessionConnector.databasePath = "/nonexistent-dir/sessions.db"   // every call fails and logs
+        let driver = SQLiteSessionDriver()
+        var session = await driver.create()
+        session.data["x"] = 1
+        await driver.save(session)
+        _ = try? await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+        let logs = CapturedLogs.shared.text
+        let leaked = logs.contains(session.token)
+        let identified = logs.contains(PerfectSession.logID(session.token))
+        if leaked || !identified { print(logs) }
+        exit(!leaked && identified ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
+}
+
+/// Whether the ThreadSanitizer runtime is loaded. Exit tests abort under it (even one that only
+/// calls exit(0)), so they're skipped there.
+let underThreadSanitizer: Bool = {
+    #if os(Linux)
+    let defaultHandle: UnsafeMutableRawPointer? = nil          // RTLD_DEFAULT
+    #else
+    let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+    #endif
+    return dlsym(defaultHandle, "__tsan_init") != nil
+}()

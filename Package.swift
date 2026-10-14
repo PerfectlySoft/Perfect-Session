@@ -13,16 +13,19 @@ let package = Package(
         .library(name: "PerfectSessionMongoDB",       targets: ["PerfectSessionMongoDB"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/PerfectlySoft/Perfect-MySQL.git", branch: "main"),
-        .package(url: "https://github.com/PerfectlySoft/Perfect-PostgreSQL.git", branch: "main"),
-        .package(url: "https://github.com/PerfectlySoft/Perfect-Redis.git", branch: "main"),
-        .package(url: "https://github.com/PerfectlySoft/Perfect-SQLite.git", branch: "main"),
-        .package(url: "https://github.com/PerfectlySoft/Perfect-MongoDB.git", from: "4.0.2"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-MySQL.git", from: "4.0.0"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-PostgreSQL.git", from: "5.0.0"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-Redis.git", from: "4.0.0"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-SQLite.git", from: "6.0.0"),
+        .package(url: "https://github.com/PerfectlySoft/Perfect-MongoDB.git", from: "4.0.3"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     ],
     targets: [
         .target(
             name: "PerfectSessionCore",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

@@ -13,7 +13,7 @@ public struct MySQLSessionConnector: Sendable {
     private init() {}
 }
 
-public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
+public final class MySQLSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {
@@ -21,9 +21,9 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS `\(MySQLSessionConnector.table)` (
                 `token`     varchar(255) NOT NULL,
                 `userid`    varchar(255),
-                `created`   int NOT NULL DEFAULT 0,
-                `updated`   int NOT NULL DEFAULT 0,
-                `idle`      int NOT NULL DEFAULT 0,
+                `created`   bigint NOT NULL DEFAULT 0,
+                `updated`   bigint NOT NULL DEFAULT 0,
+                `idle`      bigint NOT NULL DEFAULT 0,
                 `data`      text,
                 `ipaddress` varchar(255),
                 `useragent` text,
@@ -35,7 +35,7 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
 
     public func create(ipaddress: String = "", useragent: String = "") async -> PerfectSession {
         var session = PerfectSession()
-        session.token     = UUID().uuidString
+        session.token     = PerfectSession.newToken()
         session.ipaddress = ipaddress
         session.useragent = useragent
         session._state    = "new"
@@ -62,23 +62,28 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
             var s = PerfectSession()
             s.token     = row[0] as? String ?? ""
             s.userid    = row[1] as? String ?? ""
-            s.created   = Int(row[2] as? Int32 ?? 0)
-            s.updated   = Int(row[3] as? Int32 ?? 0)
-            s.idle      = Int(row[4] as? Int32 ?? 0)
+            s.created   = Self.int(row[2])
+            s.updated   = Self.int(row[3])
+            s.idle      = Self.int(row[4])
             if let d = row[5] as? String { s.fromjson(d) }
             s.ipaddress = row[6] as? String ?? ""
             s.useragent = row[7] as? String ?? ""
             found = s
         }
-        guard var s = found else { throw InvalidSessionError() }
+        guard var s = found, !s.isExpired() else { throw InvalidSessionError() }
         s._state = "resume"
+        s.setCSRF()   // a stored session without a CSRF token gets one
         return s
     }
 
+    /// Updates a stored session and renews its idle time (`touch()`). A session that isn't
+    /// stored (destroyed or expired) isn't stored again.
     public func save(_ session: PerfectSession) async {
+        var session = session
+        session.touch()
         exec(
-            "UPDATE `\(MySQLSessionConnector.table)` SET userid=?,updated=?,idle=?,data=? WHERE token=?",
-            params: [session.userid, session.updated, session.idle, session.tojson(), session.token]
+            "UPDATE `\(MySQLSessionConnector.table)` SET userid=?,created=?,updated=?,idle=?,data=? WHERE token=?",
+            params: [session.userid, session.created, session.updated, session.idle, session.tojson(), session.token]
         )
     }
 
@@ -86,24 +91,53 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
         exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE token=?", params: [token])
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
-        exec(
-            "DELETE FROM `\(MySQLSessionConnector.table)` WHERE updated + idle < ?",
-            params: [Int(Date().timeIntervalSince1970)]
-        )
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
+        let now = Int(Date().timeIntervalSince1970)
+        // DECIMAL arithmetic: a BIGINT sum overflows (an error) for an idle near Int.max.
+        let idle = "CAST(updated AS DECIMAL(30,0)) + idle < ?"
+        if absoluteTimeout > 0 {
+            exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE \(idle) OR CAST(created AS DECIMAL(30,0)) + ? <= ?",
+                 params: [now, absoluteTimeout, now])
+        } else {
+            exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE \(idle)", params: [now])
+        }
     }
 
     // MARK: - Private helpers
 
+    /// An integer column: Int64 from the BIGINT columns `setup()` creates, Int32 from the INT
+    /// columns of tables created before 4.0.
+    private static func int(_ value: Any?) -> Int {
+        switch value {
+        case let v as Int64:  return Int(v)
+        case let v as Int32:  return Int(v)
+        case let v as Int:    return v
+        case let v as UInt64: return Int(exactly: v) ?? Int.max
+        case let v as UInt32: return Int(v)
+        case let v as String: return Int(v) ?? 0
+        default:              return 0
+        }
+    }
+
     private func connect() -> MySQL {
         let db = MySQL()
         if MySQLSessionConnector.socket.isEmpty {
+            // Not UInt32(_:), which traps on a negative port. Port 0 would mean the default
+            // (3306), so an out-of-range port leaves the connection unopened: every call fails.
+            guard let port = UInt32(exactly: MySQLSessionConnector.port), (1...65535).contains(port) else {
+                return db
+            }
             _ = db.connect(
                 host: MySQLSessionConnector.host,
                 user: MySQLSessionConnector.username,
                 password: MySQLSessionConnector.password,
                 db: MySQLSessionConnector.database,
-                port: UInt32(MySQLSessionConnector.port)
+                port: port
             )
         } else {
             _ = db.connect(
