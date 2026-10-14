@@ -226,6 +226,32 @@ import Foundation
         #expect(!CSRFSecurity.isValid(origin: "untrusted.com", host: "other.com"))
     }
 
+    // MARK: - CORSSecurity
+
+    /// A wildcard pattern used to accept any origin that matched its prefix OR its suffix, so
+    /// "https://*.example.com" accepted every https origin.
+    @Test func corsWildcardNeedsPrefixAndSuffix() {
+        let prev = SessionConfig.CORS
+        defer { SessionConfig.CORS = prev }
+        SessionConfig.CORS.enabled = true
+        SessionConfig.CORS.acceptableHostnames = ["https://*.example.com", "http://localhost:*"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com"))
+        #expect(CORSSecurity.isAcceptable(origin: "https://A.Example.com"))
+        #expect(CORSSecurity.isAcceptable(origin: "http://localhost:8080"))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://evil.com"))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://example.com.evil.com"))
+        #expect(!CORSSecurity.isAcceptable(origin: "http://app.example.com"))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://localhost:8080"))
+
+        SessionConfig.CORS.acceptableHostnames = ["*.example.com"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com"))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://example.org"))
+
+        SessionConfig.CORS.acceptableHostnames = ["https://Exact.example.com"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://exact.example.com"))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://other.example.com"))
+    }
+
     // MARK: - CookieSameSite
 
     @Test func cookieSameSiteRawValues() {
