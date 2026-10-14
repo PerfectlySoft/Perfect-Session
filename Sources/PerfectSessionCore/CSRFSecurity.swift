@@ -16,6 +16,17 @@ public struct CSRFSecurity: Sendable {
         return cleanHost == cleanOrigin
     }
 
+    /// Compares a CSRF token from the request (a header or form field) with the session's
+    /// (`session.data["csrf"]`) in time that doesn't depend on where they differ. An empty token
+    /// never matches.
+    public static func tokenMatches(_ presented: String, _ expected: String) -> Bool {
+        let a = Array(presented.utf8), b = Array(expected.utf8)
+        guard !b.isEmpty, a.count == b.count else { return false }
+        var difference: UInt8 = 0
+        for i in 0..<a.count { difference |= a[i] ^ b[i] }
+        return difference == 0
+    }
+
     public static func stripScheme(_ str: String) -> String {
         if str.hasPrefix("https://") { return String(str.dropFirst(8)) }
         if str.hasPrefix("http://")  { return String(str.dropFirst(7)) }

@@ -526,6 +526,16 @@ let underThreadSanitizer: Bool = {
         #expect(!CSRFSecurity.isValid(origin: "untrusted.com", host: "other.com", acceptableHostnames: ["trusted.com"]))
     }
 
+    @Test func csrfTokenMatches() {
+        let token = PerfectSession.newToken()
+        #expect(CSRFSecurity.tokenMatches(token, token))
+        #expect(!CSRFSecurity.tokenMatches(token.uppercased(), token))
+        #expect(!CSRFSecurity.tokenMatches(String(token.dropLast()), token))
+        #expect(!CSRFSecurity.tokenMatches(token + "0", token))
+        #expect(!CSRFSecurity.tokenMatches("", ""))
+        #expect(!CSRFSecurity.tokenMatches("", token))
+    }
+
     // MARK: - CORSSecurity
 
     /// A wildcard pattern used to accept any origin that matched its prefix OR its suffix, so

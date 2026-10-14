@@ -22,7 +22,8 @@ public struct PerfectSession: @unchecked Sendable {
     public var ipaddress  = ""
     public var useragent  = ""
     public var _state     = "recover"
-    public var _isOAuth2  = SessionConfig.isOAuth2
+    @available(*, deprecated, message: "Has no effect in 4.0: nothing reads it, and it isn't stored.")
+    public var _isOAuth2  = false
 
     public init() {
         let now = Int(Date().timeIntervalSince1970)
