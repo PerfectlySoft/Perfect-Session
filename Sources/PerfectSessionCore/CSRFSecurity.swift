@@ -80,7 +80,10 @@ public struct CORSSecurity: Sendable {
     /// True if **origin** matches an entry in **config**'s `acceptableHostnames` (by default
     /// `SessionConfig.CORS`'s), ignoring
     /// case. `"*"` accepts every origin; in any other entry each `*` matches any run of
-    /// characters, and the rest must match in full (`"https://*.example.com"`).
+    /// characters, and the rest must match in full (`"https://*.example.com"`). Anchor patterns
+    /// with the scheme and the whole host: a trailing `*` (`"https://example.com*"`) also matches
+    /// `https://example.com.evil.net`, and `"*"` accepts any origin, `null` included. Sending the
+    /// `Access-Control-*` headers, credentials included, is the caller's job.
     public static func isAcceptable(origin: String, config: SessionConfig.CORSconfig = SessionConfig.CORS) -> Bool {
         guard config.enabled, !config.acceptableHostnames.isEmpty else {
             return false
