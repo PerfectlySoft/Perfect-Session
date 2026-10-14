@@ -42,7 +42,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
                                      expires: Double(session.idle), ifNotExists: true)
             }
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
@@ -52,7 +52,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
         do {
             response = try await withClient { try await $0.get(key: self.key(token)) }
         } catch {
-            logger.error("session resume failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session resume failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
             throw InvalidSessionError()
         }
         guard let json = response.string, !json.isEmpty,
@@ -83,10 +83,10 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
             }
             if reply.isNil {
                 logger.debug("session save matched no session (destroyed or expired); not recreated",
-                             metadata: ["eventid": "\(s.token)"])
+                             metadata: ["session": "\(PerfectSession.logID(s.token))"])
             }
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(s.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(s.token))"])
         }
     }
 
@@ -94,7 +94,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
         do {
             _ = try await withClient { try await $0.delete(keys: self.key(token)) }
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 

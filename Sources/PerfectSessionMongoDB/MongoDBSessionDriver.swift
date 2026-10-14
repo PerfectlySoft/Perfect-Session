@@ -84,7 +84,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         do {
             try await withCollection { try $0.insert(document) }
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
@@ -96,7 +96,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
                 try sessions.findOne(SessionDocument.self, filter: Self.filter(token: token))
             }
         } catch {
-            logger.error("session resume failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session resume failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
             throw InvalidSessionError()
         }
         // The TTL monitor only runs about once a minute, so check expiry here too.
@@ -121,10 +121,10 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
             if matched == 0 {
                 // Expected after a logout when middleware saves at the end of the request.
                 logger.debug("session save matched no session (destroyed or expired); not recreated",
-                             metadata: ["eventid": "\(session.token)"])
+                             metadata: ["session": "\(PerfectSession.logID(session.token))"])
             }
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
     }
 
@@ -132,7 +132,7 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         do {
             _ = try await withCollection { try $0.deleteOne(filter: Self.filter(token: token)) }
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 

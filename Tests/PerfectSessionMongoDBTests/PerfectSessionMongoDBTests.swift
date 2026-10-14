@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Logging
 @testable import PerfectSessionMongoDB
 import PerfectSessionCore
 import PerfectMongoDB
@@ -409,4 +410,45 @@ enum MongoDBLive {
 @Test func mongoDBLiveTestsRunWhenRequired() {
     let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
     #expect(!required || MongoDBLive.mongoEnabled, "SESSION_REQUIRE_LIVE=1 but MONGODB_TESTS is not 1")
+}
+
+/// Collects every log line, with its metadata, in this process.
+final class CapturedLogs: @unchecked Sendable {
+    static let shared = CapturedLogs()
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    var text: String { lock.withLock { lines.joined(separator: "\n") } }
+}
+
+struct CapturingLogHandler: LogHandler {
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .trace
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+    func log(event: LogEvent) {
+        CapturedLogs.shared.append("\(event.message) \(event.metadata ?? [:]) \(metadata)")
+    }
+}
+
+/// Failures used to log the full session token as `eventid`; a token in a log is a session
+/// anyone with log access can take over. Runs in a child process so it can bootstrap logging.
+@Test func mongodbLogsDoNotContainTokens() async {
+    await #expect(processExitsWith: .success) {
+        LoggingSystem.bootstrap { _ in CapturingLogHandler() }
+
+        let driver = try! MongoDBSessionDriver(uri: "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200&connectTimeoutMS=200")
+        var session = await driver.create()
+        session.data["x"] = 1
+        await driver.save(session)
+        _ = try? await driver.resume(token: session.token)
+        await driver.destroy(token: session.token)
+        let logs = CapturedLogs.shared.text
+        let leaked = logs.contains(session.token)
+        let identified = logs.contains(PerfectSession.logID(session.token))
+        if leaked || !identified { print(logs) }
+        exit(!leaked && identified ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
 }

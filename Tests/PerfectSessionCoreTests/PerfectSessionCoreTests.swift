@@ -184,6 +184,15 @@ let underThreadSanitizer: Bool = {
 
     // MARK: - Tokens
 
+    /// logID is the first 12 hex digits of the token's SHA-256.
+    @Test func logIDIsSHA256Prefix() {
+        #expect(PerfectSession.sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        #expect(PerfectSession.sha256Hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        #expect(PerfectSession.sha256Hex(String(repeating: "a", count: 1000)) ==
+                "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3")
+        #expect(PerfectSession.logID("abc") == "ba7816bf8f01")
+    }
+
     @Test func tokensAre256BitHex() async {
         let driver = MemorySessionDriver()
         var seen = Set<String>()

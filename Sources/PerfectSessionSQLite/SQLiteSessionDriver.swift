@@ -60,7 +60,7 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
                 }
             )
         } catch {
-            logger.error("session create failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
         return session
     }
@@ -113,7 +113,7 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
                 }
             )
         } catch {
-            logger.error("session save failed: \(error)", metadata: ["eventid": "\(session.token)"])
+            logger.error("session save failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
         }
     }
 
@@ -126,7 +126,7 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
                 doBindings: { stmt in try stmt.bind(position: 1, token) }
             )
         } catch {
-            logger.error("session destroy failed: \(error)", metadata: ["eventid": "\(token)"])
+            logger.error("session destroy failed: \(error)", metadata: ["session": "\(PerfectSession.logID(token))"])
         }
     }
 
