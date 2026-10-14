@@ -155,7 +155,7 @@ enum MySQLLive {
     /// Tokens and data are bound as parameters, so SQL in them is just text. (NUL isn't covered:
     /// PostgreSQL text can't hold it and SQLite text binding stops at it; see the README.)
     @Test(arguments: ["' OR '1'='1", "x' OR 1=1 -- ", "x`; DROP TABLE `test_sessions`; --",
-                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\"])
+                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\", "emoji 😀 and é"])
     func sqlInTokensIsJustText(_ token: String) async throws {
         let driver = await getDriver()
         var other = await driver.create()
@@ -214,6 +214,18 @@ enum MySQLLive {
         #expect(resumed.data["csrf"] as? String == fresh.data["csrf"] as? String)
         #expect(resumed.data["csrf"] as? String != session.data["csrf"] as? String)
         await driver.destroy(token: fresh.token)
+    }
+
+    /// UInt32(port) trapped on a negative or too-large port.
+    @Test(arguments: [-1, Int(UInt32.max) + 1, 70_000])
+    func invalidPortDoesNotTrap(_ port: Int) async {
+        let driver = await getDriver()
+        MySQLSessionConnector.port = port
+        defer { MySQLSessionConnector.port = MySQLLive.port ?? 0 }
+        let session = await driver.create()
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
     }
 
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.

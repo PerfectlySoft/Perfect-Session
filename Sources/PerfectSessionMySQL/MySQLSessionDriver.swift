@@ -113,12 +113,17 @@ public final class MySQLSessionDriver: SessionDriver, Sendable {
     private func connect() -> MySQL {
         let db = MySQL()
         if MySQLSessionConnector.socket.isEmpty {
+            // Not UInt32(_:), which traps on a negative port. Port 0 would mean the default
+            // (3306), so an out-of-range port leaves the connection unopened: every call fails.
+            guard let port = UInt32(exactly: MySQLSessionConnector.port), (1...65535).contains(port) else {
+                return db
+            }
             _ = db.connect(
                 host: MySQLSessionConnector.host,
                 user: MySQLSessionConnector.username,
                 password: MySQLSessionConnector.password,
                 db: MySQLSessionConnector.database,
-                port: UInt32(MySQLSessionConnector.port)
+                port: port
             )
         } else {
             _ = db.connect(

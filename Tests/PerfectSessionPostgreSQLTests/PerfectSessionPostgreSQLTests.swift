@@ -161,7 +161,7 @@ enum PostgreSQLLive {
     /// Tokens and data are bound as parameters, so SQL in them is just text. (NUL isn't covered:
     /// PostgreSQL text can't hold it and SQLite text binding stops at it; see the README.)
     @Test(arguments: ["' OR '1'='1", "x' OR 1=1 -- ", "x`; DROP TABLE `test_sessions`; --",
-                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\"])
+                      "x\"; DROP TABLE \"test_sessions\"; --", "%", "\\", "emoji 😀 and é"])
     func sqlInTokensIsJustText(_ token: String) async throws {
         let driver = await getDriver()
         var other = await driver.create()
