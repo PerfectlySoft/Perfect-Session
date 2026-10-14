@@ -4,12 +4,25 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  MONGOC_VERSION: 2.5.5
+
 jobs:
   linux:
     # Every backend against a real server (SQLite uses a local file).
-    name: Linux (Swift 6.4, all backends)
+    name: Linux (Swift ${{ matrix.swift }}, ${{ matrix.configuration }})
     runs-on: ubuntu-24.04
-    container: swift:6.4-resolute
+    container: swift:${{ matrix.swift }}-noble
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported Swift (swift-tools-version 6.2) and the newest.
+        swift: ["6.2", "6.4"]
+        configuration: [debug, release]
     services:
       mongo:
         image: mongo:8
@@ -34,40 +47,100 @@ jobs:
       MONGODB_URI: mongodb://mongo:27017
       PG_TESTS: "1"
       PG_HOST: postgres
+      PG_PORT: "5432"
       MYSQL_TESTS: "1"
       MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
       REDIS_TESTS: "1"
       REDIS_HOST: redis
+      REDIS_PORT: "6379"
       SQLITE_TESTS: "1"
+      # Fail, rather than skip, if a backend's tests aren't switched on or can't reach its server.
+      SESSION_REQUIRE_LIVE: "1"
+      # Expiry is epoch seconds; it must not depend on the process's time zone.
+      TZ: America/Denver
     steps:
       - uses: actions/checkout@v7
 
       - name: Install client libraries
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends pkg-config libmongoc-dev libbson-dev libpq-dev libmysqlclient-dev libsqlite3-dev
+          apt-get install -y --no-install-recommends pkg-config libpq-dev libmysqlclient-dev libsqlite3-dev \
+            build-essential cmake curl libssl-dev libsasl2-dev libzstd-dev
 
-      - name: Test
-        run: swift test
+      # Ubuntu 24.04's libmongoc is 1.x; Perfect-MongoDB 4 needs libmongoc 2.
+      - name: Cache libmongoc
+        id: mongoc-cache
+        uses: actions/cache@v6
+        with:
+          path: /opt/mongoc
+          key: mongoc-${{ env.MONGOC_VERSION }}-noble
 
-  macos:
-    # GitHub's macOS runners have no database servers, so this covers the build plus the
-    # server-independent tests, including SQLite (a local file).
-    name: macOS (build, core and SQLite tests)
-    runs-on: macos-26
-    env:
-      SQLITE_TESTS: "1"
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install client libraries
+      - name: Build libmongoc
+        if: steps.mongoc-cache.outputs.cache-hit != 'true'
         run: |
-          brew install mongo-c-driver mysql-client libpq
-          # Keg-only; older SwiftPM releases don't find libpq through its brew provider alone.
-          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$(brew --prefix mysql-client)/lib/pkgconfig" >> "$GITHUB_ENV"
+          curl -fsSL https://github.com/mongodb/mongo-c-driver/releases/download/$MONGOC_VERSION/mongo-c-driver-$MONGOC_VERSION.tar.gz | tar xz
+          cmake -S mongo-c-driver-$MONGOC_VERSION -B mongoc-build \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/mongoc \
+            -DENABLE_TESTS=OFF -DENABLE_EXAMPLES=OFF
+          cmake --build mongoc-build --parallel
+          cmake --install mongoc-build
+
+      - name: Use libmongoc
+        run: |
+          echo "PKG_CONFIG_PATH=$(dirname "$(find /opt/mongoc -name mongoc2.pc)")" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$(find /opt/mongoc -name 'libmongoc2.so' | head -1)")" >> "$GITHUB_ENV"
 
       - name: Toolchain
         run: swift --version
 
+      - name: Build (warnings are errors)
+        run: |
+          flags="-c ${{ matrix.configuration }} -Xswiftc -warnings-as-errors"
+          # @testable imports need testing enabled in an optimized build.
+          [ "${{ matrix.configuration }}" = release ] && flags="$flags -Xswiftc -enable-testing"
+          echo "FLAGS=$flags" >> "$GITHUB_ENV"
+          swift build --build-tests $flags
+
       - name: Test
-        run: swift test
+        run: swift test $FLAGS
+
+  macos:
+    # GitHub's macOS runners have no database servers, so this covers the build, the
+    # server-independent tests and SQLite (a local file); the other live suites report as skipped.
+    name: macOS (Xcode ${{ matrix.xcode }}, ${{ matrix.configuration }})
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Xcode with Swift 6.2, and the runner's default.
+        xcode: ["26.0.1", "26.6"]
+        configuration: [debug, release]
+    env:
+      SQLITE_TESTS: "1"
+      TZ: America/Denver
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+          swift --version
+
+      - name: Install client libraries
+        run: |
+          brew install mongo-c-driver mysql-client libpq pkgconf
+          # mysql-client and libpq are keg-only, so pkg-config can't find their .pc files without this.
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$(brew --prefix mysql-client)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Build (warnings are errors)
+        run: |
+          flags="-c ${{ matrix.configuration }} -Xswiftc -warnings-as-errors"
+          # @testable imports need testing enabled in an optimized build.
+          [ "${{ matrix.configuration }}" = release ] && flags="$flags -Xswiftc -enable-testing"
+          echo "FLAGS=$flags" >> "$GITHUB_ENV"
+          swift build --build-tests $flags
+
+      - name: Test
+        run: swift test $FLAGS
