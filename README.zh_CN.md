@@ -64,14 +64,19 @@ targets: [
 ### 会话安全
 
 - **令牌**：会话令牌和 CSRF 令牌取自系统的安全随机数生成器（32 字节，64 个十六进制字符）。
-- **过期由服务器强制执行**：会话空闲超过 `idle` 秒（每次 `save` 都会续期），或设置了
+- **过期由服务器强制执行**：会话空闲超过 `idle` 秒（所有驱动的 `save` 都会续期），或设置了
   `SessionConfig.absoluteTimeout` 且自创建起已超过该秒数时，所有驱动的 `resume` 都会抛出 `InvalidSessionError`。
   时间以 1970 年以来的秒数存储，与进程时区无关。
 - **会话固定**：`resume` 只返回驱动已存储的会话，`save` 只更新已存储的会话。用户登录或权限变化时调用
   `regenerate(_:)`，并把新令牌发给客户端。
 - **Cookie**：`SessionCookie.setCookie(token:)` 与 `expiredCookie()` 使用 `SessionConfig` 的 Cookie 设置
   （默认 `HttpOnly`、`SameSite=Strict`）；`SameSite=None` 和 `__Secure-`/`__Host-` 前缀总会加上 `Secure`。
-- **会话数据**以 JSON 存储，`data` 只能存放 JSON 值；否则会话以空数据保存。
+- **CSRF**：用 `CSRFSecurity.tokenMatches(_:_:)` 比较请求带回的令牌与 `data["csrf"]`，并用
+  `CSRFSecurity.isValid(origin:host:)` 检查 `Origin`（比较协议、主机和端口，忽略大小写和默认端口）。
+- **需要登录的路径**：`AuthFilter.requiresAuthentication(_:using:)` 按 `/` 分段、默认忽略大小写进行匹配；
+  `"/admin"` 覆盖其下所有路径但不覆盖 `/administrator`。`shouldWeAccept` 已弃用。
+- **会话数据**以 JSON 存储，`data` 只能存放 JSON 值；无法存为 JSON 的键不会被保存（只记录键名），其他键和 CSRF
+  令牌照常保存。日志中只记录令牌的 SHA-256 前缀（`PerfectSession.logID`），不记录令牌本身。
 - **配置**是全局状态，请在启动时设置一次，然后再开始处理请求。
 
 ## 存储后端
@@ -86,7 +91,7 @@ targets: [
 
 **MySQL、PostgreSQL 与 SQLite** 后端每个会话一行，所有值都以参数绑定；`created`、`updated`、`idle` 为 64 位列。
 **Redis** 后端把会话以 JSON 存在 `RedisSessionConnector.keyPrefix`（默认 `perfect-session:`）加令牌的键下，
-TTL 为会话的 `idle`；`RedisSessionConnector.commandTimeout` 会传给 Perfect-Redis。
+TTL 为会话的 `idle`；`RedisSessionConnector.commandTimeout`（默认 5 秒，设为 nil 则不限）会传给 Perfect-Redis，超时的调用会抛出错误并关闭连接。
 **MongoDB** 后端每个会话一个文档，`data` 为子文档，`setup()` 会添加 TTL 索引；`data` 中的空键、`%` 和 NUL 会被转义。
 
 ### 从 Perfect-Session-MongoDB 迁移
