@@ -4,14 +4,13 @@ import Foundation
 /// values from the request and passes them as strings to these helpers.
 public struct CSRFSecurity: Sendable {
 
-    public static func isValid(origin: String, host: String) -> Bool {
+    /// True if **origin** (scheme stripped) is in **acceptableHostnames** (by default
+    /// `SessionConfig.CSRF.acceptableHostnames`) or equals **host**.
+    public static func isValid(origin: String, host: String,
+                               acceptableHostnames: [String] = SessionConfig.CSRF.acceptableHostnames) -> Bool {
         let cleanOrigin = stripScheme(origin)
         if cleanOrigin.isEmpty { return false }
-        if !SessionConfig.CSRF.acceptableHostnames.isEmpty {
-            for check in SessionConfig.CSRF.acceptableHostnames {
-                if check == cleanOrigin { return true }
-            }
-        }
+        if acceptableHostnames.contains(cleanOrigin) { return true }
         let cleanHost = stripScheme(host)
         if cleanHost.isEmpty { return false }
         return cleanHost == cleanOrigin
@@ -27,15 +26,16 @@ public struct CSRFSecurity: Sendable {
 /// Validates CORS origin against SessionConfig.CORS.acceptableHostnames.
 public struct CORSSecurity: Sendable {
 
-    /// True if **origin** matches an entry in `SessionConfig.CORS.acceptableHostnames`, ignoring
+    /// True if **origin** matches an entry in **config**'s `acceptableHostnames` (by default
+    /// `SessionConfig.CORS`'s), ignoring
     /// case. `"*"` accepts every origin; in any other entry each `*` matches any run of
     /// characters, and the rest must match in full (`"https://*.example.com"`).
-    public static func isAcceptable(origin: String) -> Bool {
-        guard SessionConfig.CORS.enabled, !SessionConfig.CORS.acceptableHostnames.isEmpty else {
+    public static func isAcceptable(origin: String, config: SessionConfig.CORSconfig = SessionConfig.CORS) -> Bool {
+        guard config.enabled, !config.acceptableHostnames.isEmpty else {
             return false
         }
         let lower = origin.lowercased()
-        for pattern in SessionConfig.CORS.acceptableHostnames {
+        for pattern in config.acceptableHostnames {
             if pattern == "*" || matches(lower, pattern: pattern.lowercased()) { return true }
         }
         return false

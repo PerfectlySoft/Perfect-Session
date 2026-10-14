@@ -62,11 +62,14 @@ public struct PerfectSession: @unchecked Sendable {
         return !overflow && end <= now
     }
 
-    /// Returns false if the session has expired (see `isExpired`) or IP/UA locks fail.
-    public func isValid(ipaddress remoteIP: String = "", useragent remoteUA: String = "") -> Bool {
+    /// Returns false if the session has expired (see `isExpired`) or IP/UA locks fail. The locks
+    /// default to `SessionConfig.IPAddressLock` and `SessionConfig.userAgentLock`.
+    public func isValid(ipaddress remoteIP: String = "", useragent remoteUA: String = "",
+                        ipAddressLock: Bool = SessionConfig.IPAddressLock,
+                        userAgentLock: Bool = SessionConfig.userAgentLock) -> Bool {
         guard !isExpired() else { return false }
-        if SessionConfig.IPAddressLock && !remoteIP.isEmpty && remoteIP != ipaddress { return false }
-        if SessionConfig.userAgentLock && !remoteUA.isEmpty && remoteUA != useragent { return false }
+        if ipAddressLock && !remoteIP.isEmpty && remoteIP != ipaddress { return false }
+        if userAgentLock && !remoteUA.isEmpty && remoteUA != useragent { return false }
         return true
     }
 

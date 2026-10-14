@@ -140,6 +140,31 @@ enum SQLiteLive {
         await driver.destroy(token: other.token)
     }
 
+    /// Concurrent saves and resumes of one session: last writer wins, nothing is corrupted or lost.
+    @Test func concurrentSaveAndResume() async throws {
+        let driver = await getDriver()
+        let session = await driver.create()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in 0..<40 {
+                group.addTask {
+                    if i.isMultiple(of: 2) {
+                        var copy = session
+                        copy.data["n"] = i
+                        await driver.save(copy)
+                    } else {
+                        _ = try await driver.resume(token: session.token)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let final = try await driver.resume(token: session.token)
+        let n = try #require(final.data["n"] as? Int)
+        #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
+        #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = await getDriver()
         var session = await driver.create()

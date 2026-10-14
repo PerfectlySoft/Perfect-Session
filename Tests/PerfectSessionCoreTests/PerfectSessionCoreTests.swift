@@ -7,6 +7,16 @@ import Glibc
 import Darwin
 #endif
 
+/// Whether the ThreadSanitizer runtime is loaded.
+let underThreadSanitizer: Bool = {
+    #if os(Linux)
+    let defaultHandle: UnsafeMutableRawPointer? = nil          // RTLD_DEFAULT
+    #else
+    let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+    #endif
+    return dlsym(defaultHandle, "__tsan_init") != nil
+}()
+
 @Suite struct PerfectSessionCoreTests {
 
     @Test func sessionInit() {
@@ -143,11 +153,9 @@ import Darwin
         s.idle      = 86400
         s.updated   = Int(Date().timeIntervalSince1970)
         s.ipaddress = "10.0.0.1"
-        let prev = SessionConfig.IPAddressLock
-        SessionConfig.IPAddressLock = true
-        defer { SessionConfig.IPAddressLock = prev }
-        #expect(s.isValid(ipaddress: "10.0.0.1"))
-        #expect(!s.isValid(ipaddress: "10.0.0.2"))
+        #expect(s.isValid(ipaddress: "10.0.0.1", ipAddressLock: true))
+        #expect(!s.isValid(ipaddress: "10.0.0.2", ipAddressLock: true))
+        #expect(s.isValid(ipaddress: "10.0.0.2", ipAddressLock: false))
     }
 
     @Test func sessionIsValidUALock() {
@@ -155,11 +163,9 @@ import Darwin
         s.idle      = 86400
         s.updated   = Int(Date().timeIntervalSince1970)
         s.useragent = "Safari/17"
-        let prev = SessionConfig.userAgentLock
-        SessionConfig.userAgentLock = true
-        defer { SessionConfig.userAgentLock = prev }
-        #expect(s.isValid(useragent: "Safari/17"))
-        #expect(!s.isValid(useragent: "Chrome/120"))
+        #expect(s.isValid(useragent: "Safari/17", userAgentLock: true))
+        #expect(!s.isValid(useragent: "Chrome/120", userAgentLock: true))
+        #expect(s.isValid(useragent: "Chrome/120", userAgentLock: false))
     }
 
     // MARK: - Tokens
@@ -181,7 +187,9 @@ import Darwin
     /// On Linux, Foundation's UUID() reads /dev/urandom and ignores a failed open(), so with no
     /// file descriptor left every UUID was 00000000-0000-4000-8000-000000000000: every new
     /// session got the same token. Runs in a child process, which it starves of descriptors.
-    @Test func tokensStayRandomWithoutFileDescriptors() async {
+    /// (Skipped under ThreadSanitizer, whose runtime aborts a process with no descriptors left.)
+    @Test(.disabled(if: underThreadSanitizer, "ThreadSanitizer needs file descriptors"))
+    func tokensStayRandomWithoutFileDescriptors() async {
         await #expect(processExitsWith: .success) {
             #if os(Linux)
             let resource = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
@@ -289,6 +297,31 @@ import Darwin
         #expect(resumed.useragent == "UA")
     }
 
+    /// Concurrent saves and resumes of one session: last writer wins, nothing is corrupted or lost.
+    @Test func concurrentSaveAndResume() async throws {
+        let driver = MemorySessionDriver()
+        let session = await driver.create()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in 0..<40 {
+                group.addTask {
+                    if i.isMultiple(of: 2) {
+                        var copy = session
+                        copy.data["n"] = i
+                        await driver.save(copy)
+                    } else {
+                        _ = try await driver.resume(token: session.token)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let final = try await driver.resume(token: session.token)
+        let n = try #require(final.data["n"] as? Int)
+        #expect(n.isMultiple(of: 2) && (0..<40).contains(n))
+        #expect(final.data["csrf"] as? String == session.data["csrf"] as? String)
+        await driver.destroy(token: session.token)
+    }
+
     @Test func memoryClean() async throws {
         let driver = MemorySessionDriver()
         var session = await driver.create()
@@ -348,11 +381,8 @@ import Darwin
     }
 
     @Test func csrfSecurityAcceptableHostnames() {
-        let prev = SessionConfig.CSRF.acceptableHostnames
-        SessionConfig.CSRF.acceptableHostnames = ["trusted.com"]
-        defer { SessionConfig.CSRF.acceptableHostnames = prev }
-        #expect(CSRFSecurity.isValid(origin: "trusted.com", host: "other.com"))
-        #expect(!CSRFSecurity.isValid(origin: "untrusted.com", host: "other.com"))
+        #expect(CSRFSecurity.isValid(origin: "trusted.com", host: "other.com", acceptableHostnames: ["trusted.com"]))
+        #expect(!CSRFSecurity.isValid(origin: "untrusted.com", host: "other.com", acceptableHostnames: ["trusted.com"]))
     }
 
     // MARK: - CORSSecurity
@@ -360,25 +390,27 @@ import Darwin
     /// A wildcard pattern used to accept any origin that matched its prefix OR its suffix, so
     /// "https://*.example.com" accepted every https origin.
     @Test func corsWildcardNeedsPrefixAndSuffix() {
-        let prev = SessionConfig.CORS
-        defer { SessionConfig.CORS = prev }
-        SessionConfig.CORS.enabled = true
-        SessionConfig.CORS.acceptableHostnames = ["https://*.example.com", "http://localhost:*"]
-        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com"))
-        #expect(CORSSecurity.isAcceptable(origin: "https://A.Example.com"))
-        #expect(CORSSecurity.isAcceptable(origin: "http://localhost:8080"))
-        #expect(!CORSSecurity.isAcceptable(origin: "https://evil.com"))
-        #expect(!CORSSecurity.isAcceptable(origin: "https://example.com.evil.com"))
-        #expect(!CORSSecurity.isAcceptable(origin: "http://app.example.com"))
-        #expect(!CORSSecurity.isAcceptable(origin: "https://localhost:8080"))
+        var config = SessionConfig.CORSconfig()
+        config.enabled = true
+        config.acceptableHostnames = ["https://*.example.com", "http://localhost:*"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com", config: config))
+        #expect(CORSSecurity.isAcceptable(origin: "https://A.Example.com", config: config))
+        #expect(CORSSecurity.isAcceptable(origin: "http://localhost:8080", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://evil.com", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://example.com.evil.com", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "http://app.example.com", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://localhost:8080", config: config))
 
-        SessionConfig.CORS.acceptableHostnames = ["*.example.com"]
-        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com"))
-        #expect(!CORSSecurity.isAcceptable(origin: "https://example.org"))
+        config.acceptableHostnames = ["*.example.com"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://app.example.com", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://example.org", config: config))
 
-        SessionConfig.CORS.acceptableHostnames = ["https://Exact.example.com"]
-        #expect(CORSSecurity.isAcceptable(origin: "https://exact.example.com"))
-        #expect(!CORSSecurity.isAcceptable(origin: "https://other.example.com"))
+        config.acceptableHostnames = ["https://Exact.example.com"]
+        #expect(CORSSecurity.isAcceptable(origin: "https://exact.example.com", config: config))
+        #expect(!CORSSecurity.isAcceptable(origin: "https://other.example.com", config: config))
+
+        config.enabled = false
+        #expect(!CORSSecurity.isAcceptable(origin: "https://exact.example.com", config: config))
     }
 
     // MARK: - CookieSameSite
