@@ -616,6 +616,16 @@ let underThreadSanitizer: Bool = {
         withCookieConfig(name: "__Host-sid", path: "/app") {
             #expect(SessionCookie.setCookie(token: "t") == nil)
         }
+        // Browsers match the prefixes ignoring case.
+        withCookieConfig(name: "__HOST-sid", domain: "example.com") {
+            #expect(SessionCookie.setCookie(token: "t") == nil)
+        }
+        withCookieConfig(name: "__host-sid") {
+            #expect(SessionCookie.setCookie(token: "t") == "__host-sid=t; Path=/; HttpOnly; Secure; SameSite=Strict")
+        }
+        withCookieConfig(name: "__SECURE-sid") {
+            #expect(SessionCookie.setCookie(token: "t") == "__SECURE-sid=t; Path=/; HttpOnly; Secure; SameSite=Strict")
+        }
     }
 
     /// Settings or a token containing ";" or CR/LF would otherwise add attributes or headers.

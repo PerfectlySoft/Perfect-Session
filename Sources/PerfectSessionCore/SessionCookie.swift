@@ -9,7 +9,7 @@ public enum SessionCookie {
     /// drops it when it closes; the server enforces `idle` and `absoluteTimeout` itself.
     ///
     /// `SameSite=None` always adds `Secure` (browsers reject it otherwise), and so does a name
-    /// starting with `__Secure-` or `__Host-`. Returns nil, rather than a header a browser would
+    /// starting with `__Secure-` or `__Host-` (in any case). Returns nil, rather than a header a browser would
     /// misread, if the name isn't a valid cookie name, the token or path holds a character a cookie
     /// can't (`;`, `,`, whitespace, quotes, a backslash or a control character), the domain isn't
     /// a plain host name, or a `__Host-` cookie has a domain or a path other than `/`.
@@ -30,10 +30,12 @@ public enum SessionCookie {
         guard isToken(name), value.unicodeScalars.allSatisfy(isCookieOctet),
               !path.isEmpty, path.unicodeScalars.allSatisfy(isPathCharacter),
               domain.isEmpty || isHostName(domain) else { return nil }
-        let hostPrefixed = name.hasPrefix("__Host-")
+        // Browsers recognize the prefixes ignoring case.
+        let lowerName = name.lowercased()
+        let hostPrefixed = lowerName.hasPrefix("__host-")
         if hostPrefixed && (!domain.isEmpty || path != "/") { return nil }
         let secure = SessionConfig.cookieSecure || SessionConfig.cookieSameSite == .none
-            || hostPrefixed || name.hasPrefix("__Secure-")
+            || hostPrefixed || lowerName.hasPrefix("__secure-")
         var parts = ["\(name)=\(value)", "Path=\(path)"]
         if !domain.isEmpty { parts.append("Domain=\(domain)") }
         if let extra { parts.append(extra) }
