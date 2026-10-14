@@ -70,6 +70,89 @@ enum RedisLive {
         }
     }
 
+    func rawClient() async throws -> RedisClient {
+        try await RedisClient.connect(withIdentifier: RedisClientIdentifier(
+            withHost: RedisSessionConnector.host, port: RedisSessionConnector.port,
+            password: RedisSessionConnector.password, commandTimeout: 10))
+    }
+
+    /// A save racing a logout used to SET the key again and bring the session back.
+    @Test func saveAfterDestroyDoesNotResurrect() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.userid = "logged-out"
+        await driver.destroy(token: session.token)
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+    }
+
+    /// The key's TTL follows the session's own idle time, not SessionConfig.idle.
+    @Test func expiryFollowsSessionIdle() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.idle = 1
+        await driver.save(session)
+        try await Task.sleep(for: .milliseconds(1500))
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+    }
+
+    /// An idle time of 0 or less used to store the session with no TTL at all.
+    @Test func nonPositiveIdleDoesNotMakeASessionImmortal() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.idle = 0
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+    }
+
+    /// Tokens come from the client's cookie. Session keys are namespaced, so a token can't name
+    /// (and resume or delete) one of the application's own keys.
+    @Test func tokenCannotReachOtherKeys() async throws {
+        let driver = getDriver()
+        let client = try await rawClient()
+        let key = "app:user:\(UUID().uuidString)"
+        _ = try await client.set(key: key, value: .string(#"{"userid":"admin","data":{}}"#))
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: key)
+        }
+        await driver.destroy(token: key)
+        #expect(try await client.get(key: key).string != nil)
+        _ = try await client.delete(keys: key)
+        try await client.close()
+    }
+
+    /// Keys go to Redis as bulk strings, so separators, spaces and CR/LF in a token are just bytes.
+    @Test(arguments: ["a b", "a:b", "x\r\nFLUSHALL\r\n", "*1\r\n$4\r\nPING", "", "\u{0}"])
+    func awkwardTokensAreJustMissingSessions(_ token: String) async throws {
+        let driver = getDriver()
+        let client = try await rawClient()
+        let canary = "canary:\(UUID().uuidString)"
+        _ = try await client.set(key: canary, value: .string("alive"))
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: token)
+        }
+        await driver.destroy(token: token)
+        #expect(try await client.get(key: canary).string == "alive")
+        _ = try await client.delete(keys: canary)
+        try await client.close()
+    }
+
+    @Test func keysAreNamespaced() async throws {
+        let driver = getDriver()
+        let session = await driver.create()
+        let client = try await rawClient()
+        #expect(try await client.get(key: RedisSessionConnector.keyPrefix + session.token).string != nil)
+        #expect(try await client.get(key: session.token).isNil)
+        try await client.close()
+        await driver.destroy(token: session.token)
+    }
+
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
     @Test func serverIsReachable() async throws {
         _ = getDriver()
