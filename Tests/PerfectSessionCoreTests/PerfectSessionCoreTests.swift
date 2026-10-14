@@ -518,7 +518,26 @@ let underThreadSanitizer: Bool = {
     }
 
     @Test func csrfSecurityStripsScheme() {
-        #expect(CSRFSecurity.isValid(origin: "https://example.com", host: "http://example.com"))
+        #expect(CSRFSecurity.isValid(origin: "https://example.com", host: "example.com"))
+        #expect(CSRFSecurity.isValid(origin: "https://example.com", host: "https://example.com"))
+    }
+
+    /// The check ignored the scheme (an http origin passed for an https host), treated
+    /// example.com:443 and example.com as different, and compared the Host header's case.
+    @Test func csrfSecurityComparesSchemePortAndCase() {
+        #expect(!CSRFSecurity.isValid(origin: "http://example.com", host: "https://example.com"))
+        #expect(CSRFSecurity.isValid(origin: "https://example.com", host: "example.com:443"))
+        #expect(CSRFSecurity.isValid(origin: "https://example.com:443", host: "example.com"))
+        #expect(CSRFSecurity.isValid(origin: "http://example.com", host: "example.com:80"))
+        #expect(!CSRFSecurity.isValid(origin: "https://example.com", host: "example.com:80"))
+        #expect(!CSRFSecurity.isValid(origin: "https://example.com:8443", host: "example.com"))
+        #expect(CSRFSecurity.isValid(origin: "https://example.com:8443", host: "example.com:8443"))
+        #expect(CSRFSecurity.isValid(origin: "https://Example.COM", host: "EXAMPLE.com"))
+        #expect(!CSRFSecurity.isValid(origin: "null", host: "null"))
+        #expect(CSRFSecurity.isValid(origin: "https://trusted.com:443", host: "other.com",
+                                     acceptableHostnames: ["https://Trusted.com"]))
+        #expect(!CSRFSecurity.isValid(origin: "http://trusted.com", host: "other.com",
+                                      acceptableHostnames: ["https://trusted.com"]))
     }
 
     @Test func csrfSecurityAcceptableHostnames() {

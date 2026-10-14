@@ -4,16 +4,56 @@ import Foundation
 /// values from the request and passes them as strings to these helpers.
 public struct CSRFSecurity: Sendable {
 
-    /// True if **origin** (scheme stripped) is in **acceptableHostnames** (by default
-    /// `SessionConfig.CSRF.acceptableHostnames`) or equals **host**.
+    /// True if **origin** (the request's `Origin` header) names the same origin as **host** (its
+    /// `Host` header) or as an entry in **acceptableHostnames** (by default
+    /// `SessionConfig.CSRF.acceptableHostnames`).
+    ///
+    /// Comparison ignores case and treats a default port (`:443` for https, `:80` for http) like
+    /// no port. When both sides give a scheme, the schemes must match; a side without a scheme
+    /// (a `Host` header never has one) takes the other side's. An empty or `null` origin never
+    /// matches.
     public static func isValid(origin: String, host: String,
                                acceptableHostnames: [String] = SessionConfig.CSRF.acceptableHostnames) -> Bool {
-        let cleanOrigin = stripScheme(origin)
-        if cleanOrigin.isEmpty { return false }
-        if acceptableHostnames.contains(cleanOrigin) { return true }
-        let cleanHost = stripScheme(host)
-        if cleanHost.isEmpty { return false }
-        return cleanHost == cleanOrigin
+        let o = Endpoint(origin)
+        guard !o.authority.isEmpty, o.authority != "null" || o.scheme != nil else { return false }
+        for accepted in acceptableHostnames where Endpoint(accepted).matches(o) { return true }
+        let h = Endpoint(host)
+        guard !h.authority.isEmpty else { return false }
+        return h.matches(o)
+    }
+
+    /// An origin or host: an optional scheme and a lowercased host[:port].
+    struct Endpoint {
+        let scheme: String?
+        let authority: String
+
+        init(_ text: String) {
+            var rest = Substring(text.lowercased())
+            if let range = rest.range(of: "://") {
+                scheme = String(rest[..<range.lowerBound])
+                rest = rest[range.upperBound...]
+            } else {
+                scheme = nil
+            }
+            if rest.hasSuffix("/") { rest = rest.dropLast() }
+            authority = String(rest)
+        }
+
+        func matches(_ other: Endpoint) -> Bool {
+            if let a = scheme, let b = other.scheme, a != b { return false }
+            let effective = scheme ?? other.scheme
+            return Self.strip(authority, effective) == Self.strip(other.authority, effective)
+        }
+
+        static func strip(_ authority: String, _ scheme: String?) -> String {
+            let suffix: String
+            switch scheme {
+            case "https": suffix = ":443"
+            case "http":  suffix = ":80"
+            default:      return authority
+            }
+            return authority.hasSuffix(suffix) ? String(authority.dropLast(suffix.count)) : authority
+        }
     }
 
     /// Compares a CSRF token from the request (a header or form field) with the session's
