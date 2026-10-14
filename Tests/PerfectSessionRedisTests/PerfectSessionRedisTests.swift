@@ -153,6 +153,25 @@ enum RedisLive {
         await driver.destroy(token: session.token)
     }
 
+    @Test func regenerateMovesSessionToNewToken() async throws {
+        let driver = getDriver()
+        var session = await driver.create()
+        session.userid = "user-before-login"
+        session.data["cart"] = 3
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.token != session.token)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        let resumed = try await driver.resume(token: fresh.token)
+        #expect(resumed.userid == "user-before-login")
+        #expect(resumed.data["cart"] as? Int == 3)
+        #expect(resumed.data["csrf"] as? String == fresh.data["csrf"] as? String)
+        #expect(resumed.data["csrf"] as? String != session.data["csrf"] as? String)
+        await driver.destroy(token: fresh.token)
+    }
+
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
     @Test func serverIsReachable() async throws {
         _ = getDriver()

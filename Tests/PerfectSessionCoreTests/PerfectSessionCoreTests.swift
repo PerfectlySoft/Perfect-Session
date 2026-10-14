@@ -267,6 +267,28 @@ import Darwin
         }
     }
 
+    /// There was no way to move a session to a new token, so a token fixed before sign-in
+    /// stayed valid after it.
+    @Test func memoryRegenerate() async throws {
+        let driver = MemorySessionDriver()
+        var session = await driver.create(ipaddress: "10.0.0.9", useragent: "UA")
+        session.userid = "alice"
+        session.data["cart"] = 3
+        await driver.save(session)
+        let fresh = await driver.regenerate(session)
+        #expect(fresh.token != session.token)
+        #expect(fresh.data["csrf"] as? String != session.data["csrf"] as? String)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        let resumed = try await driver.resume(token: fresh.token)
+        #expect(resumed.userid == "alice")
+        #expect(resumed.data["cart"] as? Int == 3)
+        #expect(resumed.data["csrf"] as? String == fresh.data["csrf"] as? String)
+        #expect(resumed.ipaddress == "10.0.0.9")
+        #expect(resumed.useragent == "UA")
+    }
+
     @Test func memoryClean() async throws {
         let driver = MemorySessionDriver()
         var session = await driver.create()
