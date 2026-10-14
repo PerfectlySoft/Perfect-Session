@@ -221,6 +221,22 @@ enum SQLiteLive {
         await driver.destroy(token: fresh.token)
     }
 
+    /// clean() used to delete only sessions past their idle time, never ones past
+    /// SessionConfig.absoluteTimeout.
+    @Test func cleanHonoursAbsoluteTimeout() async throws {
+        let driver = await getDriver()
+        var old = await driver.create()
+        old.created -= 1000
+        await driver.save(old)
+        let young = await driver.create()
+        await driver.clean(absoluteTimeout: 500)
+        #expect(!(try isStored(old.token)))
+        #expect(try isStored(young.token))
+        await driver.clean(absoluteTimeout: 0)
+        #expect(try isStored(young.token))
+        await driver.destroy(token: young.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = await getDriver()
         var session = await driver.create()

@@ -91,12 +91,21 @@ public final class MySQLSessionDriver: SessionDriver, Sendable {
         exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE token=?", params: [token])
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
-        exec(
-            // DECIMAL arithmetic: a BIGINT sum overflows (an error) for an idle near Int.max.
-            "DELETE FROM `\(MySQLSessionConnector.table)` WHERE CAST(updated AS DECIMAL(30,0)) + idle < ?",
-            params: [Int(Date().timeIntervalSince1970)]
-        )
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
+        let now = Int(Date().timeIntervalSince1970)
+        // DECIMAL arithmetic: a BIGINT sum overflows (an error) for an idle near Int.max.
+        let idle = "CAST(updated AS DECIMAL(30,0)) + idle < ?"
+        if absoluteTimeout > 0 {
+            exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE \(idle) OR CAST(created AS DECIMAL(30,0)) + ? <= ?",
+                 params: [now, absoluteTimeout, now])
+        } else {
+            exec("DELETE FROM `\(MySQLSessionConnector.table)` WHERE \(idle)", params: [now])
+        }
     }
 
     // MARK: - Private helpers

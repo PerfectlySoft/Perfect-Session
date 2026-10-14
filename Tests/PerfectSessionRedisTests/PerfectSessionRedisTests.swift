@@ -297,6 +297,19 @@ enum RedisLive {
         await driver.destroy(token: fresh.token)
     }
 
+    /// The key's TTL used to ignore SessionConfig.absoluteTimeout.
+    @Test func ttlHonoursAbsoluteTimeout() {
+        var s = PerfectSession()
+        s.created = 10_000
+        s.updated = 10_100
+        s.idle = 3600
+        #expect(RedisSessionDriver.ttl(s, absoluteTimeout: 0, now: 10_100) == 3600)
+        #expect(RedisSessionDriver.ttl(s, absoluteTimeout: 500, now: 10_100) == 400)
+        #expect(RedisSessionDriver.ttl(s, absoluteTimeout: 50, now: 10_100) == 1)
+        s.idle = Int.max
+        #expect(RedisSessionDriver.ttl(s, absoluteTimeout: 0, now: 10_100) == Double(RedisSessionDriver.maximumTTL))
+    }
+
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
     @Test func serverIsReachable() async throws {
         _ = getDriver()

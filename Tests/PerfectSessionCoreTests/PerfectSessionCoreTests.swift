@@ -402,6 +402,30 @@ let underThreadSanitizer: Bool = {
         await driver.destroy(token: fresh.token)
     }
 
+    @Test func memoryCleanHonoursAbsoluteTimeout() async throws {
+        let driver = MemorySessionDriver()
+        var old = await driver.create()
+        old.created -= 1000
+        await driver.save(old)
+        let young = await driver.create()
+        await driver.clean(absoluteTimeout: 500)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: old.token)
+        }
+        _ = try await driver.resume(token: young.token)
+    }
+
+    @Test func expiryTakesTheEarlierLimit() {
+        var s = PerfectSession()
+        s.created = 1000
+        s.updated = 5000
+        s.idle = 100
+        #expect(s.expiry(absoluteTimeout: 0) == 5100)
+        #expect(s.expiry(absoluteTimeout: 3000) == 4000)
+        #expect(s.expiry(absoluteTimeout: 10000) == 5100)
+        #expect(s.expiry(absoluteTimeout: Int.max) == 5100)
+    }
+
     @Test func memoryClean() async throws {
         let driver = MemorySessionDriver()
         var session = await driver.create()

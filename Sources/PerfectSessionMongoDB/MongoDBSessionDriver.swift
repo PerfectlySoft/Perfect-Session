@@ -19,7 +19,7 @@ public struct MongoDBSessionConnector: Sendable {
 ///       data: { ... }, expiresAt: <Date> }
 ///
 /// `data` is a real subdocument, not JSON text. Keys libmongoc won't store are escaped (see
-/// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`), so MongoDB
+/// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`, or `created + absoluteTimeout` if earlier), so MongoDB
 /// deletes expired sessions on its own; `clean()` still deletes them immediately for callers
 /// that rely on it. Like the other drivers, `resume` refuses an expired session.
 ///
@@ -136,14 +136,29 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
         }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         let now = Date()
+        let cutoff = absoluteTimeout > 0 ? Int(now.timeIntervalSince1970) - absoluteTimeout : nil
         do {
             try await withCollection { sessions in
                 let before = BSON()
                 before.append(key: "$lt", dateTime: Self.millis(now))
-                let filter = BSON()
-                filter.append(key: "expiresAt", document: before)
+                let expired = BSON()
+                expired.append(key: "expiresAt", document: before)
+                guard let cutoff else {
+                    try sessions.deleteMany(filter: expired)
+                    return
+                }
+                // Documents saved before absoluteTimeout was set can have a later expiresAt.
+                let filter = try BSON(json: """
+                    {"$or": [{"expiresAt": {"$lt": {"$date": {"$numberLong": "\(Self.millis(now))"}}}},
+                             {"created": {"$lte": \(cutoff)}}]}
+                    """)
                 try sessions.deleteMany(filter: filter)
             }
         } catch {
@@ -209,7 +224,7 @@ struct SessionDocument: Codable, Sendable {
     var data: JSONValue
     var expiresAt: Date
 
-    init(_ session: PerfectSession) {
+    init(_ session: PerfectSession, absoluteTimeout: Int = SessionConfig.absoluteTimeout) {
         _id       = session.token
         userid    = session.userid
         created   = session.created
@@ -220,7 +235,8 @@ struct SessionDocument: Codable, Sendable {
         // Through JSON text, not [String: Any] casts: on Darwin a JSON true and 1 are both NSNumber.
         data      = ((try? JSONDecoder().decode(JSONValue.self, from: Data(session.tojson().utf8))) ?? .object([:]))
             .mappingKeys(Self.escape)
-        expiresAt = Date(timeIntervalSince1970: TimeInterval(min(max(session.expires, Self.earliestExpiry), Self.latestExpiry)))
+        expiresAt = Date(timeIntervalSince1970: TimeInterval(min(max(session.expiry(absoluteTimeout: absoluteTimeout),
+                                                                         Self.earliestExpiry), Self.latestExpiry)))
     }
 
     /// BSON dates are 64-bit milliseconds, and Perfect-MongoDB's encoder traps on a `Date` outside

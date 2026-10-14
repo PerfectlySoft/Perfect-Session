@@ -130,14 +130,25 @@ public final class SQLiteSessionDriver: SessionDriver, Sendable {
         }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         do {
             let db = try SQLite(SQLiteSessionConnector.databasePath)
             defer { db.close() }
             let now = Int(Date().timeIntervalSince1970)
+            // A positive absolute timeout also deletes sessions created at or before now - timeout
+            // (SQLite turns an overflowing integer sum into a real, so neither side overflows).
+            let cutoff = absoluteTimeout > 0 ? now - absoluteTimeout : Int.min
             try db.execute(
-                statement: "DELETE FROM \"\(SQLiteSessionConnector.table)\" WHERE updated + idle < ?",
-                doBindings: { stmt in try stmt.bind(position: 1, now) }
+                statement: "DELETE FROM \"\(SQLiteSessionConnector.table)\" WHERE updated + idle < ? OR created <= ?",
+                doBindings: { stmt in
+                    try stmt.bind(position: 1, now)
+                    try stmt.bind(position: 2, cutoff)
+                }
             )
         } catch {
             logger.error("session clean failed: \(error)")

@@ -107,12 +107,21 @@ public final class PostgreSQLSessionDriver: SessionDriver, Sendable {
         exec("DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE token=$1", params: [token])
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
-        exec(
-            // numeric arithmetic: an integer sum overflows (an error) for an idle near the type's max.
-            "DELETE FROM \"\(PostgreSQLSessionConnector.table)\" WHERE updated::numeric + idle < $1",
-            params: [Int(Date().timeIntervalSince1970)]
-        )
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
+        let now = Int(Date().timeIntervalSince1970)
+        // numeric arithmetic: an integer sum overflows (an error) for an idle near the type's max.
+        let table = "\"\(PostgreSQLSessionConnector.table)\""
+        if absoluteTimeout > 0 {
+            exec("DELETE FROM \(table) WHERE updated::numeric + idle < $1 OR created::numeric + $2 <= $1",
+                 params: [now, absoluteTimeout])
+        } else {
+            exec("DELETE FROM \(table) WHERE updated::numeric + idle < $1", params: [now])
+        }
     }
 
     // MARK: - Private helpers

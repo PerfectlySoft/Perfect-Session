@@ -41,7 +41,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
         do {
             _ = try await withClient { client in
                 try await client.set(key: self.key(session.token), value: .string(json),
-                                     expires: Self.ttl(session.idle), ifNotExists: true)
+                                     expires: Self.ttl(session), ifNotExists: true)
             }
         } catch {
             logger.error("session create failed: \(error)", metadata: ["session": "\(PerfectSession.logID(session.token))"])
@@ -73,15 +73,15 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
         var s = session
         s.touch()
         do {
-            guard s.idle > 0 else {
+            guard !s.isExpired() else {   // idle of 0 or less, or past absoluteTimeout
                 _ = try await withClient { try await $0.delete(keys: self.key(s.token)) }
                 return
             }
             guard let json = encode(s) else { return }
-            let token = s.token, idle = s.idle
+            let token = s.token, ttl = Self.ttl(s)
             let reply = try await withClient { client in
                 try await client.set(key: self.key(token), value: .string(json),
-                                     expires: Self.ttl(idle), ifExists: true)
+                                     expires: ttl, ifExists: true)
             }
             if reply.isNil {
                 logger.debug("session save matched no session (destroyed or expired); not recreated",
@@ -107,8 +107,12 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
     /// in 64 bits) accepts; the session's own `idle` is still stored as is.
     static let maximumTTL = 1_000_000_000_000
 
-    static func ttl(_ idle: Int) -> Double {
-        Double(min(idle, maximumTTL))
+    /// The key's TTL in seconds: until the session's `expiry(absoluteTimeout:)`, at most
+    /// `maximumTTL`, at least 1 (save() deletes a session already past it).
+    static func ttl(_ session: PerfectSession, absoluteTimeout: Int = SessionConfig.absoluteTimeout,
+                    now: Int = Int(Date().timeIntervalSince1970)) -> Double {
+        let (remaining, overflow) = session.expiry(absoluteTimeout: absoluteTimeout).subtractingReportingOverflow(now)
+        return Double(max(1, min(overflow ? maximumTTL : remaining, maximumTTL)))
     }
 
     private func key(_ token: String) -> String {

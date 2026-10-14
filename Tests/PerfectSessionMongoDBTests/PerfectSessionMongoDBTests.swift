@@ -346,6 +346,27 @@ enum MongoDBLive {
         await driver.destroy(token: fresh.token)
     }
 
+    /// clean() and the TTL index used to ignore SessionConfig.absoluteTimeout.
+    @Test func cleanAndTTLHonourAbsoluteTimeout() async throws {
+        let driver = try getDriver()
+        var old = await driver.create()
+        old.created -= 1000
+        #expect(SessionDocument(old, absoluteTimeout: 500).expiresAt ==
+                Date(timeIntervalSince1970: TimeInterval(old.created + 500)))
+        await driver.save(old)
+        let young = await driver.create()
+        await driver.clean(absoluteTimeout: 500)
+        func stored(_ token: String) async throws -> Int {
+            try await driver.pool.withClient { client in
+                try client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_test")
+                    .countDocuments(filter: try BSON(json: #"{"_id": "\#(token)"}"#))
+            }
+        }
+        #expect(try await stored(old.token) == 0)
+        #expect(try await stored(young.token) == 1)
+        await driver.destroy(token: young.token)
+    }
+
     @Test func regenerateMovesSessionToNewToken() async throws {
         let driver = try getDriver()
         var session = await driver.create()

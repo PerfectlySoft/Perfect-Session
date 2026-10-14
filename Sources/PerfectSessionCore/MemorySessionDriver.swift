@@ -42,10 +42,15 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
         _ = lock.withLock { sessions.removeValue(forKey: token) }
     }
 
+    /// Deletes sessions that have expired, by idle time or `SessionConfig.absoluteTimeout`.
     public func clean() async {
+        await clean(absoluteTimeout: SessionConfig.absoluteTimeout)
+    }
+
+    func clean(absoluteTimeout: Int) async {
         let now = Int(Date().timeIntervalSince1970)
         lock.withLock {
-            sessions = sessions.filter { _, s in s.expires > now }
+            sessions = sessions.filter { _, s in !s.isExpired(at: now, absoluteTimeout: absoluteTimeout) }
         }
     }
 }

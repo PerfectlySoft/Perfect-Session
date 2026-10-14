@@ -86,10 +86,15 @@ public struct PerfectSession: @unchecked Sendable {
     /// Every driver's `resume` refuses an expired session.
     public func isExpired(at now: Int = Int(Date().timeIntervalSince1970),
                           absoluteTimeout: Int = SessionConfig.absoluteTimeout) -> Bool {
-        if expires <= now { return true }
-        guard absoluteTimeout > 0 else { return false }
+        expiry(absoluteTimeout: absoluteTimeout) <= now
+    }
+
+    /// When the session expires (seconds since 1970), taking **absoluteTimeout** into account:
+    /// the earlier of `expires` and `created + absoluteTimeout` (when that's positive).
+    public func expiry(absoluteTimeout: Int = SessionConfig.absoluteTimeout) -> Int {
+        guard absoluteTimeout > 0 else { return expires }
         let (end, overflow) = created.addingReportingOverflow(absoluteTimeout)
-        return !overflow && end <= now
+        return overflow ? expires : min(expires, end)
     }
 
     /// Returns false if the session has expired (see `isExpired`) or IP/UA locks fail. The locks
