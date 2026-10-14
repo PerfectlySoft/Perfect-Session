@@ -1,6 +1,11 @@
 import Testing
 import Foundation
 @testable import PerfectSessionCore
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 @Suite struct PerfectSessionCoreTests {
 
@@ -155,6 +160,45 @@ import Foundation
         defer { SessionConfig.userAgentLock = prev }
         #expect(s.isValid(useragent: "Safari/17"))
         #expect(!s.isValid(useragent: "Chrome/120"))
+    }
+
+    // MARK: - Tokens
+
+    @Test func tokensAre256BitHex() async {
+        let driver = MemorySessionDriver()
+        var seen = Set<String>()
+        for _ in 0..<500 {
+            let session = await driver.create()
+            for token in [session.token, session.data["csrf"] as? String ?? ""] {
+                #expect(token.count == 64)
+                #expect(token.allSatisfy { "0123456789abcdef".contains($0) })
+                seen.insert(token)
+            }
+        }
+        #expect(seen.count == 1000)
+    }
+
+    /// On Linux, Foundation's UUID() reads /dev/urandom and ignores a failed open(), so with no
+    /// file descriptor left every UUID was 00000000-0000-4000-8000-000000000000: every new
+    /// session got the same token. Runs in a child process, which it starves of descriptors.
+    @Test func tokensStayRandomWithoutFileDescriptors() async {
+        await #expect(processExitsWith: .success) {
+            #if os(Linux)
+            let resource = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+            #else
+            let resource = RLIMIT_NOFILE
+            #endif
+            var limit = rlimit()
+            getrlimit(resource, &limit)
+            limit.rlim_cur = 64
+            setrlimit(resource, &limit)
+            while open("/dev/null", O_RDONLY) >= 0 {}
+            let driver = MemorySessionDriver()
+            let first = await driver.create(), second = await driver.create()
+            let distinct = first.token != second.token
+                && first.data["csrf"] as? String != second.data["csrf"] as? String
+            exit(distinct ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
     }
 
     // MARK: - MemorySessionDriver

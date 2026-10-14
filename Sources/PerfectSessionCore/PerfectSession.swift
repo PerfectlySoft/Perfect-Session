@@ -70,9 +70,33 @@ public struct PerfectSession: @unchecked Sendable {
         return true
     }
 
+    /// A new session or CSRF token: 32 bytes (256 bits) from the system's secure random number
+    /// generator, as 64 lowercase hex digits.
+    ///
+    /// Not `UUID()`: on Linux, Foundation's UUID reads /dev/urandom and ignores a failed open,
+    /// so in a process out of file descriptors every UUID is 00000000-0000-4000-8000-000000000000.
+    /// `SystemRandomNumberGenerator` uses getrandom(2) or arc4random_buf(3) and never returns
+    /// unfilled bytes.
+    public static func newToken() -> String {
+        var generator = SystemRandomNumberGenerator()
+        let hex = Array("0123456789abcdef".utf8)
+        var digits = [UInt8]()
+        digits.reserveCapacity(64)
+        for _ in 0..<4 {
+            var word = generator.next()
+            for _ in 0..<8 {
+                let byte = UInt8(truncatingIfNeeded: word)
+                digits.append(hex[Int(byte >> 4)])
+                digits.append(hex[Int(byte & 0x0f)])
+                word >>= 8
+            }
+        }
+        return String(decoding: digits, as: UTF8.self)
+    }
+
     public mutating func setCSRF() {
         if (data["csrf"] as? String ?? "").isEmpty {
-            data["csrf"] = UUID().uuidString
+            data["csrf"] = PerfectSession.newToken()
         }
     }
 }
