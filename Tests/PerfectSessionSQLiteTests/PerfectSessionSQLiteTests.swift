@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import PerfectSessionSQLite
 import PerfectSessionCore
+import PerfectSQLite
 
 /// Live-test settings, outside the suite so its traits can refer to them.
 enum SQLiteLive {
@@ -10,6 +11,18 @@ enum SQLiteLive {
 
 // Serialized: each test sets the connector's global settings.
 @Suite(.serialized, .enabled(if: SQLiteLive.sqliteEnabled, "set SQLITE_TESTS=1 to run")) struct PerfectSessionSQLiteTests {
+
+    /// Whether a row is stored for **token**, read directly: resume() refuses expired sessions
+    /// whether or not clean() deleted them.
+    func isStored(_ token: String) throws -> Bool {
+        let db = try SQLite(SQLiteSessionConnector.databasePath)
+        defer { db.close() }
+        var found = false
+        try db.forEachRow(statement: #"SELECT 1 FROM "test_sessions" WHERE token = ?"#,
+                          doBindings: { try $0.bind(position: 1, token) },
+                          handleRow: { _, _ in found = true })
+        return found
+    }
 
     func getDriver() async -> SQLiteSessionDriver {
         let tmp = FileManager.default.temporaryDirectory
@@ -82,16 +95,29 @@ enum SQLiteLive {
         await driver.destroy(token: session.token)
     }
 
-    @Test func clean() async {
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
         let driver = await getDriver()
         var session = await driver.create()
         session.idle    = 1
         session.updated = Int(Date().timeIntervalSince1970) - 10
         await driver.save(session)
-        await driver.clean()
         await #expect(throws: InvalidSessionError.self) {
             _ = try await driver.resume(token: session.token)
         }
+        await driver.destroy(token: session.token)
+    }
+
+    @Test func clean() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle    = 1
+        session.updated = Int(Date().timeIntervalSince1970) - 10
+        await driver.save(session)
+        #expect(try isStored(session.token))
+        await driver.clean()
+        #expect(!(try isStored(session.token)))
     }
 
     @Test func dataRoundTrip() async throws {

@@ -21,6 +21,17 @@ enum PostgreSQLLive {
         }
     }()
 
+    /// Whether a row is stored for **token**, read directly: resume() refuses expired sessions
+    /// whether or not clean() deleted them.
+    func isStored(_ token: String) -> Bool {
+        let db = PGConnection()
+        defer { db.close() }
+        guard db.connectdb(PostgreSQLSessionConnector.connectionString()) == .ok else { return false }
+        let result = db.exec(statement: #"SELECT 1 FROM "test_sessions" WHERE token = $1"#, params: [token])
+        defer { result.clear() }
+        return result.numTuples() > 0
+    }
+
     func getDriver() async -> PostgreSQLSessionDriver {
         PostgreSQLSessionConnector.host     = ProcessInfo.processInfo.environment["PG_HOST"]     ?? "localhost"
         PostgreSQLSessionConnector.username = ProcessInfo.processInfo.environment["PG_USER"]     ?? "postgres"
@@ -106,8 +117,20 @@ enum PostgreSQLLive {
         await driver.save(expired)
         await driver.clean()
         #expect(try await driver.resume(token: session.token).idle == Int.max)
+        #expect(!isStored(expired.token))
+        await driver.destroy(token: session.token)
+    }
+
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle    = 1
+        session.updated = Int(Date().timeIntervalSince1970) - 10
+        await driver.save(session)
         await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: expired.token)
+            _ = try await driver.resume(token: session.token)
         }
         await driver.destroy(token: session.token)
     }
@@ -118,10 +141,9 @@ enum PostgreSQLLive {
         session.idle    = 1
         session.updated = Int(Date().timeIntervalSince1970) - 10
         await driver.save(session)
+        #expect(isStored(session.token))
         await driver.clean()
-        await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: session.token)
-        }
+        #expect(!(isStored(session.token)))
     }
 
     /// Under trust auth any password is accepted, so this shows the URI still parses.

@@ -108,6 +108,31 @@ import Foundation
         _ = try await driver.resume(token: stored.token)
     }
 
+    @Test func absoluteTimeout() {
+        var s = PerfectSession()
+        let now = Int(Date().timeIntervalSince1970)
+        s.created = now - 100
+        s.updated = now
+        s.idle    = 3600
+        #expect(!s.isExpired(at: now, absoluteTimeout: 0))
+        #expect(!s.isExpired(at: now, absoluteTimeout: 101))
+        #expect(s.isExpired(at: now, absoluteTimeout: 100))
+        #expect(!s.isExpired(at: now, absoluteTimeout: Int.max))
+        #expect(s.isExpired(at: now + 3600, absoluteTimeout: 0))
+    }
+
+    /// resume() used to return an expired session, leaving the check to the caller.
+    @Test func memoryResumeRejectsExpired() async {
+        let driver = MemorySessionDriver()
+        var session = await driver.create()
+        session.idle    = 1
+        session.updated = Int(Date().timeIntervalSince1970) - 10
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+    }
+
     @Test func sessionIsValidIPLock() {
         var s = PerfectSession()
         s.idle      = 86400

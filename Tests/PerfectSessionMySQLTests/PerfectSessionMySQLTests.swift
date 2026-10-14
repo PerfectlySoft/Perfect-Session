@@ -24,6 +24,18 @@ enum MySQLLive {
         }
     }()
 
+    /// Whether a row is stored for **token**, read directly: resume() refuses expired sessions
+    /// whether or not clean() deleted them.
+    func isStored(_ token: String) -> Bool {
+        let db = MySQL()
+        guard db.connect(host: MySQLSessionConnector.host, user: MySQLSessionConnector.username,
+                         password: MySQLSessionConnector.password, db: MySQLSessionConnector.database,
+                         port: UInt32(MySQLSessionConnector.port)),
+              db.query(statement: "SELECT 1 FROM `test_sessions` WHERE token = '\(token)'"),
+              let results = db.storeResults() else { return false }
+        return results.numRows() > 0
+    }
+
     func getDriver() async -> MySQLSessionDriver {
         MySQLSessionConnector.host     = ProcessInfo.processInfo.environment["MYSQL_HOST"]     ?? "localhost"
         MySQLSessionConnector.username = ProcessInfo.processInfo.environment["MYSQL_USER"]     ?? "root"
@@ -111,8 +123,20 @@ enum MySQLLive {
         await driver.save(expired)
         await driver.clean()
         #expect(try await driver.resume(token: session.token).idle == Int.max)
+        #expect(!isStored(expired.token))
+        await driver.destroy(token: session.token)
+    }
+
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
+        let driver = await getDriver()
+        var session = await driver.create()
+        session.idle    = 1
+        session.updated = Int(Date().timeIntervalSince1970) - 10
+        await driver.save(session)
         await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: expired.token)
+            _ = try await driver.resume(token: session.token)
         }
         await driver.destroy(token: session.token)
     }
@@ -123,10 +147,9 @@ enum MySQLLive {
         session.idle    = 1
         session.updated = Int(Date().timeIntervalSince1970) - 10
         await driver.save(session)
+        #expect(isStored(session.token))
         await driver.clean()
-        await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: session.token)
-        }
+        #expect(!(isStored(session.token)))
     }
 
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.

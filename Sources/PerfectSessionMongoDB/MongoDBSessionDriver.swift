@@ -21,8 +21,7 @@ public struct MongoDBSessionConnector: Sendable {
 /// `data` is a real subdocument, not JSON text. Keys libmongoc won't store are escaped (see
 /// `SessionDocument`). `setup()` adds a TTL index on `expiresAt` (`updated + idle`), so MongoDB
 /// deletes expired sessions on its own; `clean()` still deletes them immediately for callers
-/// that rely on it. Like the other drivers, `resume` returns expired sessions too: callers
-/// check `PerfectSession.isValid()`.
+/// that rely on it. Like the other drivers, `resume` refuses an expired session.
 ///
 /// `save` only updates an existing session, so a save racing a `destroy` (logout) can't bring
 /// the session back. `setup()` also deletes documents left by the archived Perfect-Session-MongoDB
@@ -100,7 +99,8 @@ public final class MongoDBSessionDriver: SessionDriver, Sendable {
             logger.error("session resume failed: \(error)", metadata: ["eventid": "\(token)"])
             throw InvalidSessionError()
         }
-        guard var session = found?.session else {
+        // The TTL monitor only runs about once a minute, so check expiry here too.
+        guard var session = found?.session, !session.isExpired() else {
             throw InvalidSessionError()
         }
         session._state = "resume"

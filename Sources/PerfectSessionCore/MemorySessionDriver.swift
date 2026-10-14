@@ -21,7 +21,7 @@ public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
 
     public func resume(token: String) async throws -> PerfectSession {
         let found = lock.withLock { sessions[token] }
-        guard var session = found else { throw InvalidSessionError() }
+        guard var session = found, !session.isExpired() else { throw InvalidSessionError() }
         session._state = "resume"
         return session
     }

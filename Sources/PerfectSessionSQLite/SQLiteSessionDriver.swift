@@ -85,7 +85,7 @@ public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
                 found = s
             }
         )
-        guard var s = found else { throw InvalidSessionError() }
+        guard var s = found, !s.isExpired() else { throw InvalidSessionError() }
         s._state = "resume"
         return s
     }

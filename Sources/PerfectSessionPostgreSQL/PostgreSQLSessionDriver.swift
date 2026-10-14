@@ -86,6 +86,7 @@ public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
         if let d = result.getFieldString(tupleIndex: 0, fieldIndex: 5) { s.fromjson(d) }
         s.ipaddress = result.getFieldString(tupleIndex: 0, fieldIndex: 6) ?? ""
         s.useragent = result.getFieldString(tupleIndex: 0, fieldIndex: 7) ?? ""
+        guard !s.isExpired() else { throw InvalidSessionError() }
         s._state    = "resume"
         return s
     }

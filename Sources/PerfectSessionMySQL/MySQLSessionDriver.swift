@@ -70,7 +70,7 @@ public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
             s.useragent = row[7] as? String ?? ""
             found = s
         }
-        guard var s = found else { throw InvalidSessionError() }
+        guard var s = found, !s.isExpired() else { throw InvalidSessionError() }
         s._state = "resume"
         return s
     }

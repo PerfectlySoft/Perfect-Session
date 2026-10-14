@@ -13,7 +13,11 @@ public struct SessionConfig {
     nonisolated(unsafe) public static var cookieSecure   = false
     nonisolated(unsafe) public static var cookieHTTPOnly = true
     nonisolated(unsafe) public static var cookieSameSite: CookieSameSite = .strict
+    /// Seconds a session lasts without being saved (each save renews it).
     nonisolated(unsafe) public static var idle           = 86400
+    /// Seconds a session lasts from its creation however active it is, or 0 (the default) for no
+    /// limit. Checked by `PerfectSession.isExpired()`, `isValid()` and every driver's `resume`.
+    nonisolated(unsafe) public static var absoluteTimeout = 0
     nonisolated(unsafe) public static var userAgentLock  = false
     nonisolated(unsafe) public static var IPAddressLock  = false
     nonisolated(unsafe) public static var healthCheckRoute = "/healthcheck"

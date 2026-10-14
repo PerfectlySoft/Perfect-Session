@@ -56,7 +56,7 @@ public final class RedisSessionDriver: SessionDriver, Sendable {
             throw InvalidSessionError()
         }
         guard let json = response.string, !json.isEmpty,
-              var session = decode(token: token, json: json) else {
+              var session = decode(token: token, json: json), !session.isExpired() else {
             throw InvalidSessionError()
         }
         session._state = "resume"

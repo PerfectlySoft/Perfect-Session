@@ -51,10 +51,20 @@ public struct PerfectSession: @unchecked Sendable {
         updated = Int(Date().timeIntervalSince1970)
     }
 
-    /// Returns false if the session has expired or IP/UA locks fail.
+    /// True once the session has been idle for `idle` seconds, or (when **absoluteTimeout** is
+    /// positive) once that many seconds have passed since it was created, however active it was.
+    /// Every driver's `resume` refuses an expired session.
+    public func isExpired(at now: Int = Int(Date().timeIntervalSince1970),
+                          absoluteTimeout: Int = SessionConfig.absoluteTimeout) -> Bool {
+        if expires <= now { return true }
+        guard absoluteTimeout > 0 else { return false }
+        let (end, overflow) = created.addingReportingOverflow(absoluteTimeout)
+        return !overflow && end <= now
+    }
+
+    /// Returns false if the session has expired (see `isExpired`) or IP/UA locks fail.
     public func isValid(ipaddress remoteIP: String = "", useragent remoteUA: String = "") -> Bool {
-        let now = Int(Date().timeIntervalSince1970)
-        guard expires > now else { return false }
+        guard !isExpired() else { return false }
         if SessionConfig.IPAddressLock && !remoteIP.isEmpty && remoteIP != ipaddress { return false }
         if SessionConfig.userAgentLock && !remoteUA.isEmpty && remoteUA != useragent { return false }
         return true

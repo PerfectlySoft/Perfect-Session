@@ -194,6 +194,20 @@ enum MongoDBLive {
         await driver.destroy(token: session.token)
     }
 
+    /// resume() used to return an expired session (until clean() ran), leaving the check to
+    /// the caller.
+    @Test func resumeRejectsExpired() async throws {
+        let driver = try getDriver()
+        var session = await driver.create()
+        session.idle    = 1
+        session.updated = Int(Date().timeIntervalSince1970) - 10
+        await driver.save(session)
+        await #expect(throws: InvalidSessionError.self) {
+            _ = try await driver.resume(token: session.token)
+        }
+        await driver.destroy(token: session.token)
+    }
+
     @Test func destroyRemovesSession() async throws {
         let driver = try getDriver()
         let session = await driver.create()
@@ -236,10 +250,17 @@ enum MongoDBLive {
         expired.idle = 1
         await driver.save(expired)
         let live = await driver.create()
-        await driver.clean()
-        await #expect(throws: InvalidSessionError.self) {
-            _ = try await driver.resume(token: expired.token)
+        // Counted directly: resume() refuses an expired session whether or not clean() deleted it.
+        let token = expired.token
+        func stored() async throws -> Int {
+            try await driver.pool.withClient { client in
+                try client.getCollection(databaseName: "perfect_sessions_test", collectionName: "sessions_ttl_test")
+                    .countDocuments(filter: try BSON(json: #"{"_id": "\#(token)"}"#))
+            }
         }
+        #expect(try await stored() == 1)
+        await driver.clean()
+        #expect(try await stored() == 0)
         _ = try await driver.resume(token: live.token)
         await driver.destroy(token: live.token)
     }
