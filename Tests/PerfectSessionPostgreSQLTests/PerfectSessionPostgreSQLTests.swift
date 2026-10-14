@@ -124,6 +124,18 @@ enum PostgreSQLLive {
         }
     }
 
+    /// Under trust auth any password is accepted, so this shows the URI still parses.
+    @Test func passwordWithReservedCharactersConnects() async {
+        _ = await getDriver()
+        let saved = PostgreSQLSessionConnector.password
+        defer { PostgreSQLSessionConnector.password = saved }
+        PostgreSQLSessionConnector.password = saved.isEmpty ? "p@ss/w:rd?x#1" : saved
+        guard saved.isEmpty else { return }
+        let db = PGConnection()
+        defer { db.close() }
+        #expect(db.connectdb(PostgreSQLSessionConnector.connectionString()) == .ok, "\(db.errorMessage())")
+    }
+
     /// Fails, rather than letting the other tests pass vacuously, when the server can't be reached.
     @Test func serverIsReachable() async {
         _ = await getDriver()
@@ -139,4 +151,18 @@ enum PostgreSQLLive {
 @Test func postgreSQLLiveTestsRunWhenRequired() {
     let required = ProcessInfo.processInfo.environment["SESSION_REQUIRE_LIVE"] == "1"
     #expect(!required || PostgreSQLLive.pgEnabled, "SESSION_REQUIRE_LIVE=1 but PG_TESTS is not 1")
+}
+
+/// connectionString() percent-encoded with .urlQueryAllowed, which leaves "/", "@", ":" and "?"
+/// alone, so a password containing one broke the URI.
+@Test func postgreSQLConnectionStringEncodesReservedCharacters() {
+    #expect(PostgreSQLSessionConnector.connectionString(
+        username: "us:er", password: "p@ss/w:rd?x=1&y#z%", host: "db.example.com", port: 5433,
+        database: "my db/x") ==
+        "postgresql://us%3Aer:p%40ss%2Fw%3Ard%3Fx%3D1%26y%23z%25@db.example.com:5433/my%20db%2Fx")
+    #expect(PostgreSQLSessionConnector.connectionString(
+        username: "u", password: "", host: "[::1]", port: 5432, database: "d") == "postgresql://u:@[::1]:5432/d")
+    #expect(PostgreSQLSessionConnector.connectionString(
+        username: "u", password: "", host: "/var/run/postgresql", port: 5432, database: "d") ==
+        "postgresql://u:@%2Fvar%2Frun%2Fpostgresql:5432/d")
 }

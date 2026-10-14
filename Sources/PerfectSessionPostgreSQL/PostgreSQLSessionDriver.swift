@@ -11,13 +11,26 @@ public struct PostgreSQLSessionConnector: Sendable {
     nonisolated(unsafe) public static var port: Int        = 5432
     private init() {}
 
+    /// A libpq connection URI for the connector's settings.
     public static func connectionString() -> String {
-        let u = username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? username
-        let p = password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? password
-        let h = host.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? host
-        let d = database.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? database
-        return "postgresql://\(u):\(p)@\(h):\(port)/\(d)"
+        connectionString(username: username, password: password, host: host, port: port, database: database)
     }
+
+    /// A libpq connection URI. Each part is percent-encoded except RFC 3986's unreserved
+    /// characters, so a password containing `@`, `/`, `:`, `?` or `#` can't change the URI's shape.
+    /// The host may also be a bracketed IPv6 address, or a Unix-socket directory (encoded, as
+    /// libpq expects).
+    public static func connectionString(username: String, password: String, host: String,
+                                        port: Int, database: String) -> String {
+        func encode(_ part: String) -> String {
+            part.addingPercentEncoding(withAllowedCharacters: unreserved) ?? part
+        }
+        let h = host.addingPercentEncoding(withAllowedCharacters: unreserved.union(CharacterSet(charactersIn: "[]:"))) ?? host
+        return "postgresql://\(encode(username)):\(encode(password))@\(h):\(port)/\(encode(database))"
+    }
+
+    private static let unreserved = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 }
 
 public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
