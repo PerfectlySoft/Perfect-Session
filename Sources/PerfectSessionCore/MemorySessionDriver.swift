@@ -1,6 +1,7 @@
 import Foundation
 
 /// Thread-safe in-memory session store. Useful for development and testing.
+/// `@unchecked Sendable`: every access to `sessions` holds `lock`.
 public final class MemorySessionDriver: SessionDriver, @unchecked Sendable {
     private var sessions = [String: PerfectSession]()
     private let lock = NSLock()

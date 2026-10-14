@@ -13,7 +13,7 @@ public struct MySQLSessionConnector: Sendable {
     private init() {}
 }
 
-public final class MySQLSessionDriver: SessionDriver, @unchecked Sendable {
+public final class MySQLSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {

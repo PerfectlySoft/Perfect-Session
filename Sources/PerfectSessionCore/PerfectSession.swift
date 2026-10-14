@@ -1,6 +1,10 @@
 import Foundation
 
-/// A session token/data container. @unchecked Sendable because data:[String:Any] is JSON-safe.
+/// A session: its token, user, timestamps and data.
+///
+/// `@unchecked Sendable` because `data` is `[String: Any]`. That holds only while `data` holds JSON
+/// values (see `data`), which are value types or immutable Foundation objects; don't put a
+/// mutable reference type in it.
 public struct PerfectSession: @unchecked Sendable {
     public var token      = ""
     public var userid     = ""

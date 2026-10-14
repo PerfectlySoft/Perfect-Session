@@ -33,7 +33,7 @@ public struct PostgreSQLSessionConnector: Sendable {
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 }
 
-public final class PostgreSQLSessionDriver: SessionDriver, @unchecked Sendable {
+public final class PostgreSQLSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {

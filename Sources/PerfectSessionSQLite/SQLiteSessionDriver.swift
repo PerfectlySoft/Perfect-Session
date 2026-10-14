@@ -11,7 +11,7 @@ public struct SQLiteSessionConnector: Sendable {
     private init() {}
 }
 
-public final class SQLiteSessionDriver: SessionDriver, @unchecked Sendable {
+public final class SQLiteSessionDriver: SessionDriver, Sendable {
     public init() {}
 
     public func setup() async {
