@@ -337,29 +337,91 @@ let underThreadSanitizer: Bool = {
 
     // MARK: - AuthFilter (uses local config to avoid parallel-test races on global state)
 
+    func requiresAuth(_ path: String, _ config: AuthenticationConfig) -> Bool {
+        AuthFilter.requiresAuthentication(path, using: config)
+    }
+
     @Test func authFilterInclusion() {
         var config = AuthenticationConfig()
         config.include("/admin")
         config.include("/profile")
-        #expect(AuthFilter.shouldWeAccept("/admin",   using: config))
-        #expect(AuthFilter.shouldWeAccept("/profile", using: config))
-        #expect(!AuthFilter.shouldWeAccept("/public", using: config))
+        #expect(requiresAuth("/admin", config))
+        #expect(requiresAuth("/profile", config))
+        #expect(!requiresAuth("/public", config))
     }
 
     @Test func authFilterWildcard() {
         var config = AuthenticationConfig()
         config.include("/admin/*")
-        #expect(AuthFilter.shouldWeAccept("/admin/users",    using: config))
-        #expect(AuthFilter.shouldWeAccept("/admin/settings", using: config))
-        #expect(!AuthFilter.shouldWeAccept("/public/page",   using: config))
+        #expect(requiresAuth("/admin/users", config))
+        #expect(requiresAuth("/admin/settings", config))
+        #expect(requiresAuth("/admin", config))
+        #expect(!requiresAuth("/public/page", config))
     }
 
     @Test func authFilterExclusion() {
         var config = AuthenticationConfig()
         config.include("*")
         config.exclude("/healthcheck")
-        #expect(AuthFilter.shouldWeAccept("/anything",    using: config))
-        #expect(!AuthFilter.shouldWeAccept("/healthcheck", using: config))
+        #expect(requiresAuth("/anything", config))
+        #expect(!requiresAuth("/healthcheck", config))
+    }
+
+    /// Perfect-NIO 0.1.0 routes /ADMIN and /Admin/users to the /admin handlers, and the old
+    /// string matching said they needed no authentication.
+    @Test(arguments: ["/admin", "/Admin", "/ADMIN", "/admin/", "//admin", "/./admin", "/Admin/users",
+                      "/ADMIN/USERS", "/admin/users/", "/admin//users", "/admin/./users",
+                      "/%61dmin", "/admin;x=1", "/x/../admin", "/admin\\users", "admin"])
+    func authFilterNormalizesPaths(_ path: String) {
+        var config = AuthenticationConfig()
+        config.include("/admin")
+        #expect(requiresAuth(path, config), "\(path)")
+    }
+
+    /// A pattern covers its own path and everything below it, segment by segment.
+    @Test func authFilterMatchesWholeSegments() {
+        var config = AuthenticationConfig()
+        config.include("/admin")
+        #expect(!requiresAuth("/administrator", config))
+        #expect(!requiresAuth("/adm", config))
+        #expect(!requiresAuth("/", config))
+        config = AuthenticationConfig()
+        config.include("/api/*")
+        config.exclude("/api/public")
+        #expect(requiresAuth("/api/x", config))
+        #expect(!requiresAuth("/api/public", config))
+        #expect(!requiresAuth("/API/Public/docs", config))
+        #expect(!requiresAuth("/apis", config))
+    }
+
+    /// `*` is only a wildcard as a whole final segment. An inclusion that uses it any other
+    /// way ("*.json", "/admin*") requires authentication everywhere rather than silently
+    /// protecting nothing; such an exclusion matches nothing.
+    @Test func authFilterRejectsPartialWildcards() {
+        var config = AuthenticationConfig()
+        config.include("/admin*")
+        #expect(requiresAuth("/administrator", config))
+        #expect(requiresAuth("/public", config))
+        config = AuthenticationConfig()
+        config.include("*")
+        config.exclude("*.json")
+        #expect(requiresAuth("/x.json", config))
+    }
+
+    /// Case-folding can be turned off for servers that route case-sensitively.
+    @Test func authFilterCaseSensitiveOption() {
+        var config = AuthenticationConfig()
+        config.include("/admin")
+        config.caseInsensitive = false
+        #expect(requiresAuth("/admin/x", config))
+        #expect(!requiresAuth("/Admin", config))
+    }
+
+    /// With nothing protected, odd characters don't start requiring authentication.
+    @Test func authFilterNoInclusionsNeverRequiresAuth() {
+        let config = AuthenticationConfig()
+        #expect(!requiresAuth("/caf%C3%A9", config))
+        #expect(!requiresAuth("/../x", config))
     }
 
     // MARK: - CSRFSecurity
