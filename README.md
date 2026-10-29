@@ -117,7 +117,7 @@ and applies the checks.
 
 ### Using it with Perfect-NIO
 
-A session filter in [Perfect-NIO](https://github.com/PerfectlySoft/Perfect-NIO) 0.1's route style:
+A session filter in [Perfect-NIO](https://github.com/PerfectlySoft/Perfect-NIO) 0.2's route style:
 
 ``` swift
 import PerfectNIO
@@ -130,7 +130,9 @@ struct RequestSession: Sendable {
     let isNew: Bool
 }
 
-@Sendable func loadSession(_ req: any HTTPRequest) async -> RequestSession {
+@Sendable func loadSession(_ req: any HTTPRequest) async throws -> RequestSession {
+    // A CORS preflight (OPTIONS) carries no cookies. Answer it before a session is created for it.
+    if req.method == .OPTIONS { throw TerminationType.criteriaFailed(.noContent) }
     let ip = req.remoteAddress?.ipAddress ?? ""
     let ua = req.headers["User-Agent"].first ?? ""
     if let token = req.cookies[SessionConfig.name],
@@ -149,6 +151,12 @@ let routes: Routes<HTTPRequest, HTTPOutput> = root(loadSession).map { state -> H
     return TextOutput("visits: \(session.data["visits"] ?? 0)", headers: headers)
 }
 ```
+
+Browsers send a preflight `OPTIONS` request, without cookies, before a cross-origin request with a custom
+header such as `X-CSRF-Token`. Without the check at the top of `loadSession`, every preflight would create and
+store a new session and run the handler. The empty `204` above sends no `Access-Control-*` headers, so the browser
+won't go on to send a cross-origin request. If you accept those, answer preflights from origins that pass
+`CORSSecurity.isAcceptable(origin:)` with the `Access-Control-*` headers your app needs.
 
 Authentication and CSRF checks, after `loadSession`:
 
